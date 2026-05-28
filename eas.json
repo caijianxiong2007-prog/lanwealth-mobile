@@ -10,27 +10,21 @@
     },
     "preview": {
       "android": {
-        "buildType": "apk"
-      },
-      "ios": {
-        "simulator": false,
-        "distribution": "internal"
+        "buildType": "apk",
+        "resourceClass": "large",
+        "gradleCommand": ":app:assembleRelease"
       },
       "distribution": "internal"
     },
     "production": {
       "autoIncrement": true,
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "resourceClass": "large"
       }
     }
   },
   "submit": {
-    "production": {
-      "android": {
-        "serviceAccountKeyPath": "./google-play-key.json",
-        "track": "internal"
-      }
-    }
+    "production": {}
   }
 }
