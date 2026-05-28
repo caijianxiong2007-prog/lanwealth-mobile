@@ -4,7 +4,7 @@ import AsyncStorage          from '@react-native-async-storage/async-storage'
 import { Platform }          from 'react-native'
 
 const SUPABASE_URL      = 'https://umpwmtciqxthmyzpymhu.supabase.co'
-const SUPABASE_ANON_KEY = 'REPLACE_WITH_SUPABASE_ANON_KEY'   // from Supabase dashboard
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtcHdtdGNpcXh0aG15enB5bWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTQ1NDgsImV4cCI6MjA5Mjg5MDU0OH0.3CuAaxPOdfmt-NarK5v8wc5L6f57NY1jO9_CnrU5d_Q'
 
 // Use SecureStore on native, AsyncStorage on web
 const ExpoSecureStoreAdapter = {
