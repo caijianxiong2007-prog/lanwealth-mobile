@@ -10,17 +10,14 @@
     },
     "preview": {
       "android": {
-        "buildType": "apk",
-        "resourceClass": "large",
-        "gradleCommand": ":app:assembleRelease"
+        "buildType": "apk"
       },
       "distribution": "internal"
     },
     "production": {
       "autoIncrement": true,
       "android": {
-        "buildType": "app-bundle",
-        "resourceClass": "large"
+        "buildType": "app-bundle"
       }
     }
   },
