@@ -10,6 +10,7 @@ export const MODELS = [
   { id: 'claude-opus-4-5',    name: 'Claude Opus 4',    tag: 'Advanced',  group: 'Claude',   free: false },
   { id: 'gpt-4o-mini',      name: 'GPT-4o mini',      tag: 'Fast',      group: 'OpenAI',   free: false },
   { id: 'gpt-4o',           name: 'GPT-4o',           tag: 'Balanced',  group: 'OpenAI',    free: false },
+  { id: 'doubao-seed-lite', name: 'Doubao Seed Lite', tag: 'Fast',      group: 'ByteDance', free: false },
   { id: 'doubao-seed-pro',  name: 'Doubao Seed Pro',  tag: 'Balanced',  group: 'ByteDance', free: false },
 ]
 
