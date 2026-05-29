@@ -9,7 +9,8 @@ export const MODELS = [
   { id: 'claude-sonnet-4-5',  name: 'Claude Sonnet 4',  tag: 'Balanced',  group: 'Claude',   free: false },
   { id: 'claude-opus-4-5',    name: 'Claude Opus 4',    tag: 'Advanced',  group: 'Claude',   free: false },
   { id: 'gpt-4o-mini',      name: 'GPT-4o mini',      tag: 'Fast',      group: 'OpenAI',   free: false },
-  { id: 'gpt-4o',           name: 'GPT-4o',           tag: 'Balanced',  group: 'OpenAI',   free: false },
+  { id: 'gpt-4o',           name: 'GPT-4o',           tag: 'Balanced',  group: 'OpenAI',    free: false },
+  { id: 'seedance',         name: 'Seedance',         tag: 'Creative',  group: 'ByteDance', free: false },
 ]
 
 // Languages the AI can respond in (via system prompt injection)
