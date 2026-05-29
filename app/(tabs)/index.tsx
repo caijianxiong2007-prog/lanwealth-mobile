@@ -122,12 +122,16 @@ export default function ChatScreen() {
             <Image source={require('../../assets/bayze-logo.png')} style={s.headerLogoImg} resizeMode="contain" />
           </View>
           <TouchableOpacity
-            onPress={() => setShowModels(true)}
-            style={s.modelBtn} activeOpacity={0.7}
+            onPress={() => { if (messages.length === 0) setShowModels(true) }}
+            style={s.modelBtn}
+            activeOpacity={messages.length === 0 ? 0.7 : 1}
           >
             <Text style={s.modelName} numberOfLines={1}>{curModel.name}</Text>
-            {curModel.free && <Text style={s.freeBadge}>Free</Text>}
-            <Text style={s.modelChevron}>▾</Text>
+            {curModel.free && messages.length === 0 && <Text style={s.freeBadge}>Free</Text>}
+            {messages.length > 0
+              ? <Text style={{ fontSize: 10, color: '#333' }}>🔒</Text>
+              : <Text style={s.modelChevron}>▾</Text>
+            }
           </TouchableOpacity>
         </View>
 
@@ -150,6 +154,18 @@ export default function ChatScreen() {
           )}
         </View>
       </View>
+
+      {/* ── Active conversation status strip ───────────────────────────────── */}
+      {messages.length > 0 && (
+        <View style={s.statusStrip}>
+          <Text style={s.statusText} numberOfLines={1}>
+            🔒 {curModel.name}{customApiUrl ? '  ·  Custom API' : '  ·  LanWealth'}
+          </Text>
+          <TouchableOpacity onPress={clearChat} activeOpacity={0.7}>
+            <Text style={s.statusNewChat}>+ New chat</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* ── Messages ───────────────────────────────────────────────────────── */}
       {messages.length === 0 ? (
@@ -249,29 +265,46 @@ export default function ChatScreen() {
           <Pressable style={s.sheet} onPress={e => e.stopPropagation()}>
             <View style={s.sheetHandle} />
             <Text style={s.sheetTitle}>Select Model</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {MODELS.map(m => (
+            {messages.length > 0 ? (
+              /* Conversation active — model locked */
+              <View style={{ padding: 20, alignItems: 'center', gap: 12 }}>
+                <Text style={{ fontSize: 14, color: C.muted, textAlign: 'center', lineHeight: 20 }}>
+                  🔒 Model is locked for this conversation.{'\n'}
+                  Start a new chat to switch models.
+                </Text>
                 <TouchableOpacity
-                  key={m.id}
-                  style={[s.sheetRow, m.id === model && s.sheetRowActive]}
-                  onPress={() => { setModel(m.id); setShowModels(false) }}
+                  style={[s.sheetRow, { borderBottomWidth: 0, backgroundColor: 'rgba(26,235,168,0.05)', borderRadius: 10, paddingHorizontal: 16 }]}
+                  onPress={() => { clearChat(); setShowModels(false) }}
                   activeOpacity={0.7}
                 >
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={[s.sheetRowName, m.id === model && { color: C.teal }]}>{m.name}</Text>
-                      {m.free && (
-                        <View style={s.freePill}>
-                          <Text style={s.freePillText}>Free credits</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={s.sheetRowSub}>{m.group} · {m.tag}</Text>
-                  </View>
-                  {m.id === model && <Text style={{ color: C.teal, fontSize: 18 }}>✓</Text>}
+                  <Text style={{ color: C.teal, fontSize: 15, fontWeight: '600' }}>+ Start new chat</Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {MODELS.map(m => (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[s.sheetRow, m.id === model && s.sheetRowActive]}
+                    onPress={() => { setModel(m.id); setShowModels(false) }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={[s.sheetRowName, m.id === model && { color: C.teal }]}>{m.name}</Text>
+                        {m.free && (
+                          <View style={s.freePill}>
+                            <Text style={s.freePillText}>Free credits</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={s.sheetRowSub}>{m.group} · {m.tag}</Text>
+                    </View>
+                    {m.id === model && <Text style={{ color: C.teal, fontSize: 18 }}>✓</Text>}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
@@ -327,6 +360,11 @@ const s = StyleSheet.create({
   iconBtn:      { padding:7, borderRadius:7, backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center', position:'relative' },
   iconBtnText:  { fontSize:14, color:C.muted },
   langDot:      { position:'absolute', top:4, right:4, width:6, height:6, borderRadius:3, backgroundColor:C.teal },
+
+  // Status strip
+  statusStrip:  { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:14, paddingVertical:5, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border },
+  statusText:   { fontSize:11, color:'#333', flex:1 },
+  statusNewChat:{ fontSize:11, color:C.teal, fontWeight:'600', paddingLeft:10 },
 
   // Welcome
   welcome:         { flex:1, alignItems:'center', justifyContent:'center', padding:24 },
