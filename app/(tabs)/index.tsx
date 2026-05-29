@@ -47,7 +47,9 @@ export default function ChatScreen() {
   const [convTitle,     setConvTitle]     = useState('')      // conversation display name
   const [showRename,    setShowRename]    = useState(false)
   const [renameInput,   setRenameInput]   = useState('')
-  const listRef = useRef<FlatList>(null)
+  const [deleteLocked,  setDeleteLocked]  = useState(true)   // delete protection ON by default
+  const listRef    = useRef<FlatList>(null)
+  const lockTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
   const curLang  = CHAT_LANGS.find(l => l.code === responseLang) ?? CHAT_LANGS[0]
@@ -118,6 +120,32 @@ export default function ChatScreen() {
     setMessages([])
     setConvTitle('')
     AsyncStorage.multiRemove(['mobile_messages', 'conv_title'])
+    relock()
+  }
+
+  // ── Delete lock helpers ──────────────────────────────────────
+  function unlock() {
+    if (lockTimer.current) clearTimeout(lockTimer.current)
+    setDeleteLocked(false)
+    lockTimer.current = setTimeout(() => setDeleteLocked(true), 15000)
+  }
+
+  function relock() {
+    if (lockTimer.current) clearTimeout(lockTimer.current)
+    setDeleteLocked(true)
+  }
+
+  // ── Export conversation ──────────────────────────────────────
+  function exportConversation() {
+    if (messages.length === 0) return
+    const lines = messages.map(m =>
+      `${m.role === 'user' ? 'You' : 'AI'}: ${m.content}`
+    ).join('\n\n---\n\n')
+    const content = `# ${convTitle || 'Bayze Chat'}\n\n${lines}`
+    // Share via native share sheet
+    import('react-native').then(({ Share }) => {
+      Share.share({ message: content, title: convTitle || 'Bayze Chat' })
+    })
   }
 
   function saveRename() {
@@ -144,16 +172,13 @@ export default function ChatScreen() {
             <Image source={require('../../assets/bayze-logo.png')} style={s.headerLogoImg} resizeMode="contain" />
           </View>
           <TouchableOpacity
-            onPress={() => { if (messages.length === 0) setShowModels(true) }}
+            onPress={() => setShowModels(true)}
             style={s.modelBtn}
-            activeOpacity={messages.length === 0 ? 0.7 : 1}
+            activeOpacity={0.7}
           >
             <Text style={s.modelName} numberOfLines={1}>{curModel.name}</Text>
-            {curModel.free && messages.length === 0 && <Text style={s.freeBadge}>Free</Text>}
-            {messages.length > 0
-              ? <Text style={{ fontSize: 10, color: '#333' }}>🔒</Text>
-              : <Text style={s.modelChevron}>▾</Text>
-            }
+            {curModel.free && <Text style={s.freeBadge}>Free</Text>}
+            <Text style={s.modelChevron}>▾</Text>
           </TouchableOpacity>
         </View>
 
@@ -176,29 +201,40 @@ export default function ChatScreen() {
       {/* ── Active conversation title bar + status strip ──────────────────── */}
       {messages.length > 0 && (
         <View>
-          {/* Title row: conversation name + rename + delete */}
+          {/* Title row: conversation name + rename + export + delete-lock */}
           <View style={s.titleBar}>
             <Text style={s.titleBarText} numberOfLines={1}>
               {convTitle || 'New Chat'}
             </Text>
+            {/* Rename */}
             <TouchableOpacity
               onPress={() => { setRenameInput(convTitle); setShowRename(true) }}
               style={s.titleBarIconBtn} activeOpacity={0.7}
             >
               <Text style={s.titleBarIcon}>✏</Text>
             </TouchableOpacity>
+            {/* Export */}
+            <TouchableOpacity onPress={exportConversation} style={s.titleBarIconBtn} activeOpacity={0.7}>
+              <Text style={[s.titleBarIcon, { fontSize: 14 }]}>↑</Text>
+            </TouchableOpacity>
+            {/* Delete lock — tap lock icon to unlock, then tap again to delete */}
             <TouchableOpacity
-              onPress={clearChat}
+              onPress={() => deleteLocked ? unlock() : clearChat()}
               style={s.titleBarIconBtn} activeOpacity={0.7}
             >
-              <Text style={[s.titleBarIcon, { color: '#444' }]}>🗑</Text>
+              <Text style={[s.titleBarIcon, {
+                color: deleteLocked ? C.teal : '#E8453C',
+                opacity: deleteLocked ? 0.7 : 1,
+              }]}>
+                {deleteLocked ? '🔒' : '🗑'}
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Status row: model lock + new chat link */}
+          {/* Status row: model + new chat */}
           <View style={s.statusStrip}>
             <Text style={s.statusText} numberOfLines={1}>
-              🔒 {curModel.name}{customApiUrl ? '  ·  Custom API' : '  ·  LanWealth'}
+              {curModel.name}{customApiUrl ? '  ·  Custom API' : '  ·  LanWealth'}
             </Text>
             <TouchableOpacity onPress={clearChat} activeOpacity={0.7}>
               <Text style={s.statusNewChat}>+ New chat</Text>
@@ -340,22 +376,13 @@ export default function ChatScreen() {
           <Pressable style={s.sheet} onPress={e => e.stopPropagation()}>
             <View style={s.sheetHandle} />
             <Text style={s.sheetTitle}>Select Model</Text>
-            {messages.length > 0 ? (
-              /* Conversation active — model locked */
-              <View style={{ padding: 20, alignItems: 'center', gap: 12 }}>
-                <Text style={{ fontSize: 14, color: C.muted, textAlign: 'center', lineHeight: 20 }}>
-                  🔒 Model is locked for this conversation.{'\n'}
-                  Start a new chat to switch models.
-                </Text>
-                <TouchableOpacity
-                  style={[s.sheetRow, { borderBottomWidth: 0, backgroundColor: 'rgba(26,235,168,0.05)', borderRadius: 10, paddingHorizontal: 16 }]}
-                  onPress={() => { clearChat(); setShowModels(false) }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={{ color: C.teal, fontSize: 15, fontWeight: '600' }}>+ Start new chat</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
+            {/* Model list — always accessible, no lock */}
+            {messages.length > 0 && (
+              <Text style={{ fontSize: 11, color: C.teal, textAlign: 'center', marginBottom: 8, opacity: 0.8 }}>
+                ✦ New model will read previous messages
+              </Text>
+            )}
+            {(
               <ScrollView showsVerticalScrollIndicator={false}>
                 {MODELS.map(m => (
                   <TouchableOpacity
@@ -379,7 +406,6 @@ export default function ChatScreen() {
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-            )}
           </Pressable>
         </Pressable>
       </Modal>
