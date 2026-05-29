@@ -49,7 +49,12 @@ export default function LoginScreen() {
             placeholderTextColor={C.muted} placeholder="your@email.com"
           />
 
-          <Text style={[s.label, { marginTop:14 }]}>Password</Text>
+          <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'baseline', marginTop:14, marginBottom:6 }}>
+            <Text style={s.label}>Password</Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://app.lanwealth.com/auth/forgot-password')} activeOpacity={.7}>
+              <Text style={s.forgotLink}>Forgot password?</Text>
+            </TouchableOpacity>
+          </View>
           <View>
             <TextInput
               style={[s.input, { paddingRight: 44 }]}
@@ -105,4 +110,5 @@ const s = StyleSheet.create({
   btn:         { marginTop:18, backgroundColor:C.teal, borderRadius:8, padding:13, alignItems:'center' },
   btnText:     { color:'#050505', fontWeight:'700', fontSize:15 },
   hint:        { marginTop:20, fontSize:12, color:C.muted },
+  forgotLink:  { fontSize:12, color:C.teal, opacity:.85 },
 })
