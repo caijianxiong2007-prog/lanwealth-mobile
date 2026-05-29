@@ -14,7 +14,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lanwealth.mobile"
+      "bundleIdentifier": "com.lanwealth.bayze",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used for profile photo",
+        "NSPhotoLibraryUsageDescription": "Used to select images to share"
+      }
     },
     "android": {
       "adaptiveIcon": {
