@@ -41,9 +41,12 @@ export default function ChatScreen() {
   const [error,       setError]       = useState('')
   const [showModels,  setShowModels]  = useState(false)
   const [showLangs,   setShowLangs]   = useState(false)
-  const [responseLang, setResponseLang] = useState('')      // '' = auto
-  const [customApiUrl, setCustomApiUrl] = useState('')
-  const [customApiKey, setCustomApiKey] = useState('')
+  const [responseLang,  setResponseLang]  = useState('')      // '' = auto
+  const [customApiUrl,  setCustomApiUrl]  = useState('')
+  const [customApiKey,  setCustomApiKey]  = useState('')
+  const [convTitle,     setConvTitle]     = useState('')      // conversation display name
+  const [showRename,    setShowRename]    = useState(false)
+  const [renameInput,   setRenameInput]   = useState('')
   const listRef = useRef<FlatList>(null)
 
   const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
@@ -56,11 +59,13 @@ export default function ChatScreen() {
       AsyncStorage.getItem('response_lang'),
       AsyncStorage.getItem('custom_api_url'),
       AsyncStorage.getItem('custom_api_key'),
-    ]).then(([msgs, lang, apiUrl, apiKey]) => {
+      AsyncStorage.getItem('conv_title'),
+    ]).then(([msgs, lang, apiUrl, apiKey, title]) => {
       if (msgs) setMessages(JSON.parse(msgs))
       if (lang) setResponseLang(lang)
       if (apiUrl) setCustomApiUrl(apiUrl)
       if (apiKey) setCustomApiKey(apiKey)
+      if (title) setConvTitle(title)
     })
   }, [])
 
@@ -68,6 +73,13 @@ export default function ChatScreen() {
     const content = (text ?? input).trim()
     if (!content || streaming) return
     setError(''); setInput(''); Keyboard.dismiss()
+
+    // Auto-set conversation title from first user message
+    if (messages.length === 0 && !convTitle) {
+      const autoTitle = content.slice(0, 40)
+      setConvTitle(autoTitle)
+      AsyncStorage.setItem('conv_title', autoTitle)
+    }
 
     const userMsg: Message     = { role: 'user', content }
     const asstSlot: Message    = { role: 'assistant', content: '' }
@@ -100,11 +112,21 @@ export default function ChatScreen() {
       setError(err instanceof Error ? err.message : 'Error')
       setMessages(prev => prev.slice(0, -1))
     } finally { setStreaming(false) }
-  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey])
+  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle])
 
   function clearChat() {
     setMessages([])
-    AsyncStorage.removeItem('mobile_messages')
+    setConvTitle('')
+    AsyncStorage.multiRemove(['mobile_messages', 'conv_title'])
+  }
+
+  function saveRename() {
+    const t = renameInput.trim()
+    if (t) {
+      setConvTitle(t)
+      AsyncStorage.setItem('conv_title', t)
+    }
+    setShowRename(false)
   }
 
   return (
@@ -147,23 +169,41 @@ export default function ChatScreen() {
           >
             <Text style={[s.iconBtnText, { color: C.teal, fontSize: 12 }]}>充值 +</Text>
           </TouchableOpacity>
-          {messages.length > 0 && (
-            <TouchableOpacity onPress={clearChat} style={s.iconBtn} activeOpacity={0.7}>
-              <Text style={s.iconBtnText}>🗑</Text>
-            </TouchableOpacity>
-          )}
+          {/* 🗑 moved to title bar below */}
         </View>
       </View>
 
-      {/* ── Active conversation status strip ───────────────────────────────── */}
+      {/* ── Active conversation title bar + status strip ──────────────────── */}
       {messages.length > 0 && (
-        <View style={s.statusStrip}>
-          <Text style={s.statusText} numberOfLines={1}>
-            🔒 {curModel.name}{customApiUrl ? '  ·  Custom API' : '  ·  LanWealth'}
-          </Text>
-          <TouchableOpacity onPress={clearChat} activeOpacity={0.7}>
-            <Text style={s.statusNewChat}>+ New chat</Text>
-          </TouchableOpacity>
+        <View>
+          {/* Title row: conversation name + rename + delete */}
+          <View style={s.titleBar}>
+            <Text style={s.titleBarText} numberOfLines={1}>
+              {convTitle || 'New Chat'}
+            </Text>
+            <TouchableOpacity
+              onPress={() => { setRenameInput(convTitle); setShowRename(true) }}
+              style={s.titleBarIconBtn} activeOpacity={0.7}
+            >
+              <Text style={s.titleBarIcon}>✏</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={clearChat}
+              style={s.titleBarIconBtn} activeOpacity={0.7}
+            >
+              <Text style={[s.titleBarIcon, { color: '#444' }]}>🗑</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Status row: model lock + new chat link */}
+          <View style={s.statusStrip}>
+            <Text style={s.statusText} numberOfLines={1}>
+              🔒 {curModel.name}{customApiUrl ? '  ·  Custom API' : '  ·  LanWealth'}
+            </Text>
+            <TouchableOpacity onPress={clearChat} activeOpacity={0.7}>
+              <Text style={s.statusNewChat}>+ New chat</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -258,6 +298,41 @@ export default function ChatScreen() {
           }
         </TouchableOpacity>
       </View>
+
+      {/* ── Rename Modal ──────────────────────────────────────────────────── */}
+      <Modal visible={showRename} transparent animationType="fade" onRequestClose={() => setShowRename(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setShowRename(false)}>
+          <Pressable style={[s.sheet, { paddingBottom: 24 }]} onPress={e => e.stopPropagation()}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>Rename Conversation</Text>
+            <TextInput
+              style={[s.inputField, { marginHorizontal: 0, marginBottom: 16, backgroundColor: C.bg3, borderWidth: 1.5, borderColor: C.teal2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 }]}
+              value={renameInput}
+              onChangeText={setRenameInput}
+              placeholder="Enter conversation name…"
+              placeholderTextColor={C.dim}
+              autoFocus
+              maxLength={60}
+              returnKeyType="done"
+              onSubmitEditing={saveRename}
+            />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={[{ flex: 1, backgroundColor: C.teal2, borderRadius: 9, padding: 13, alignItems: 'center' }]}
+                onPress={saveRename} activeOpacity={0.8}
+              >
+                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 15 }}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[{ flex: 1, backgroundColor: C.bg3, borderWidth: 1, borderColor: C.border2, borderRadius: 9, padding: 13, alignItems: 'center' }]}
+                onPress={() => setShowRename(false)} activeOpacity={0.8}
+              >
+                <Text style={{ color: C.muted, fontSize: 15 }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── Model Picker Modal ─────────────────────────────────────────────── */}
       <Modal visible={showModels} transparent animationType="slide" onRequestClose={() => setShowModels(false)}>
@@ -360,6 +435,12 @@ const s = StyleSheet.create({
   iconBtn:      { padding:7, borderRadius:7, backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center', position:'relative' },
   iconBtnText:  { fontSize:14, color:C.muted },
   langDot:      { position:'absolute', top:4, right:4, width:6, height:6, borderRadius:3, backgroundColor:C.teal },
+
+  // Title bar (conversation title + rename + delete)
+  titleBar:       { flexDirection:'row', alignItems:'center', paddingHorizontal:14, paddingVertical:7, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border, gap:6 },
+  titleBarText:   { flex:1, fontSize:13, fontWeight:'600', color:C.text },
+  titleBarIconBtn:{ padding:5, borderRadius:6 },
+  titleBarIcon:   { fontSize:13, color:C.dim },
 
   // Status strip
   statusStrip:  { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:14, paddingVertical:5, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border },
