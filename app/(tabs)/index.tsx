@@ -1,43 +1,77 @@
-import { useState, useRef, useEffect }  from 'react'
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView } from 'react-native'
-import { supabase }        from '../../lib/supabase'
-import { streamChat, MODELS } from '../../lib/api'
-import type { Message }     from '../../lib/api'
-import AsyncStorage         from '@react-native-async-storage/async-storage'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import {
+  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
+  KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
+  Modal, Pressable, Linking, Image, Keyboard,
+} from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { supabase }                  from '../../lib/supabase'
+import { streamChat, MODELS, CHAT_LANGS } from '../../lib/api'
+import type { Message }              from '../../lib/api'
 
-const C = { bg:'#0A0A0B', bg2:'#111113', bg3:'#18181C', bg4:'#1E1E24', border:'#222228', border2:'#2C2C35', text:'#E4E4EA', muted:'#606070', dim:'#38383F', teal:'#1AEBA8', teal2:'#0F8C63', teal3:'#083D2B', red:'#E8453C' }
+// ── Palette ──────────────────────────────────────────────────────────────────
+const C = {
+  bg:      '#0A0A0B',
+  bg2:     '#111113',
+  bg3:     '#18181C',
+  bg4:     '#1E1E24',
+  border:  '#222228',
+  border2: '#2C2C35',
+  text:    '#E4E4EA',
+  muted:   '#606070',
+  dim:     '#38383F',
+  teal:    '#1AEBA8',
+  teal2:   '#0F8C63',
+  teal3:   '#083D2B',
+  red:     '#E8453C',
+}
 
 const SUGGESTIONS = [
   'Explain quantum computing simply',
   'Write a Python web scraper',
-  'Review my code',
+  'Review and improve my code',
   'Draft a professional email',
 ]
 
 export default function ChatScreen() {
-  const [model,     setModel]     = useState('deepseek-v3')
-  const [messages,  setMessages]  = useState<Message[]>([])
-  const [input,     setInput]     = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [error,     setError]     = useState('')
-  const [showPicker, setShowPicker] = useState(false)
+  const [model,       setModel]       = useState('deepseek-v3')
+  const [messages,    setMessages]    = useState<Message[]>([])
+  const [input,       setInput]       = useState('')
+  const [streaming,   setStreaming]   = useState(false)
+  const [error,       setError]       = useState('')
+  const [showModels,  setShowModels]  = useState(false)
+  const [showLangs,   setShowLangs]   = useState(false)
+  const [responseLang, setResponseLang] = useState('')      // '' = auto
+  const [customApiUrl, setCustomApiUrl] = useState('')
+  const [customApiKey, setCustomApiKey] = useState('')
   const listRef = useRef<FlatList>(null)
-  const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
 
+  const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
+  const curLang  = CHAT_LANGS.find(l => l.code === responseLang) ?? CHAT_LANGS[0]
+
+  // Load persisted state
   useEffect(() => {
-    AsyncStorage.getItem('mobile_messages').then(raw => {
-      if (raw) setMessages(JSON.parse(raw))
+    Promise.all([
+      AsyncStorage.getItem('mobile_messages'),
+      AsyncStorage.getItem('response_lang'),
+      AsyncStorage.getItem('custom_api_url'),
+      AsyncStorage.getItem('custom_api_key'),
+    ]).then(([msgs, lang, apiUrl, apiKey]) => {
+      if (msgs) setMessages(JSON.parse(msgs))
+      if (lang) setResponseLang(lang)
+      if (apiUrl) setCustomApiUrl(apiUrl)
+      if (apiKey) setCustomApiKey(apiKey)
     })
   }, [])
 
-  async function send(text?: string) {
+  const send = useCallback(async (text?: string) => {
     const content = (text ?? input).trim()
     if (!content || streaming) return
-    setError(''); setInput('')
+    setError(''); setInput(''); Keyboard.dismiss()
 
-    const userMsg: Message = { role: 'user', content }
-    const asstSlot: Message = { role: 'assistant', content: '' }
-    const nextMsgs = [...messages, userMsg, asstSlot]
+    const userMsg: Message     = { role: 'user', content }
+    const asstSlot: Message    = { role: 'assistant', content: '' }
+    const nextMsgs             = [...messages, userMsg, asstSlot]
     setMessages(nextMsgs)
     setStreaming(true)
 
@@ -45,10 +79,19 @@ export default function ChatScreen() {
     if (!session) { setError('Not authenticated'); setStreaming(false); return }
 
     try {
-      for await (const delta of streamChat(session.access_token, model, [...messages, userMsg])) {
+      for await (const delta of streamChat({
+        accessToken:  session.access_token,
+        model,
+        messages:     [...messages, userMsg],
+        responseLang: responseLang || undefined,
+        customApiUrl: customApiUrl || undefined,
+        customApiKey: customApiKey || undefined,
+      })) {
         setMessages(prev => {
-          const updated = prev.map((m, i) => i === prev.length - 1 ? { ...m, content: m.content + delta } : m)
-          AsyncStorage.setItem('mobile_messages', JSON.stringify(updated.slice(-100)))
+          const updated = prev.map((m, i) =>
+            i === prev.length - 1 ? { ...m, content: m.content + delta } : m
+          )
+          AsyncStorage.setItem('mobile_messages', JSON.stringify(updated.slice(-120)))
           return updated
         })
         listRef.current?.scrollToEnd({ animated: false })
@@ -57,70 +100,115 @@ export default function ChatScreen() {
       setError(err instanceof Error ? err.message : 'Error')
       setMessages(prev => prev.slice(0, -1))
     } finally { setStreaming(false) }
+  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey])
+
+  function clearChat() {
+    setMessages([])
+    AsyncStorage.removeItem('mobile_messages')
   }
 
-  function clearChat() { setMessages([]); AsyncStorage.removeItem('mobile_messages') }
-
   return (
-    <KeyboardAvoidingView style={{ flex:1, backgroundColor:C.bg }} behavior={Platform.OS==='ios'?'padding':'height'} keyboardVerticalOffset={Platform.OS==='ios'?88:0}>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: C.bg }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
 
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => setShowPicker(v => !v)} style={s.modelBtn} activeOpacity={.7}>
-          <Text style={s.modelBtnText}>{curModel.name}</Text>
-          <Text style={s.modelTag}> {curModel.tag} ▾</Text>
-        </TouchableOpacity>
-        {messages.length > 0 && (
-          <TouchableOpacity onPress={clearChat} style={s.clearBtn} activeOpacity={.7}>
-            <Text style={s.clearBtnText}>Clear</Text>
+        {/* Left: Bayze logo + model picker */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+          <View style={s.headerLogo}>
+            <Image source={require('../../assets/bayze-logo.png')} style={s.headerLogoImg} resizeMode="contain" />
+          </View>
+          <TouchableOpacity
+            onPress={() => setShowModels(true)}
+            style={s.modelBtn} activeOpacity={0.7}
+          >
+            <Text style={s.modelName} numberOfLines={1}>{curModel.name}</Text>
+            {curModel.free && <Text style={s.freeBadge}>Free</Text>}
+            <Text style={s.modelChevron}>▾</Text>
           </TouchableOpacity>
-        )}
+        </View>
+
+        {/* Right: Lang + Top-up + Clear */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity onPress={() => setShowLangs(true)} style={s.iconBtn} activeOpacity={0.7}>
+            <Text style={s.iconBtnText}>🌐</Text>
+            {responseLang ? <Text style={s.langDot} /> : null}
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard/billing')}
+            style={[s.iconBtn, { paddingHorizontal: 10 }]} activeOpacity={0.7}
+          >
+            <Text style={[s.iconBtnText, { color: C.teal, fontSize: 12 }]}>充值 +</Text>
+          </TouchableOpacity>
+          {messages.length > 0 && (
+            <TouchableOpacity onPress={clearChat} style={s.iconBtn} activeOpacity={0.7}>
+              <Text style={s.iconBtnText}>🗑</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Model picker */}
-      {showPicker && (
-        <ScrollView style={s.picker} contentContainerStyle={{ padding:8 }}>
-          {MODELS.map(m => (
-            <TouchableOpacity key={m.id} onPress={() => { setModel(m.id); setShowPicker(false) }}
-              style={[s.pickerItem, m.id === model && { backgroundColor:C.bg4 }]} activeOpacity={.7}>
-              <Text style={s.pickerName}>{m.name}</Text>
-              <Text style={s.pickerTag}>{m.tag}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* Messages */}
-      {messages.length === 0 && !showPicker ? (
+      {/* ── Messages ───────────────────────────────────────────────────────── */}
+      {messages.length === 0 ? (
         <View style={s.welcome}>
-          <View style={s.welcomeCircle} />
-          <Text style={s.welcomeTitle}>LanWealth AI</Text>
-          <Text style={s.welcomeSub}>Powered by {curModel.name}</Text>
+          <View style={s.welcomeLogoWrap}>
+            <Image source={require('../../assets/bayze-logo.png')} style={s.welcomeLogoImg} resizeMode="contain" />
+          </View>
+          <View style={s.welcomeTitleRow}>
+            <Text style={s.welcomeTitle}>Bayze</Text>
+            <Text style={s.welcomeZh}>白泽</Text>
+          </View>
+          <Text style={s.welcomeSub}>
+            {curModel.name}
+            {responseLang ? `  ·  ${curLang.native}` : ''}
+            {(customApiUrl && customApiKey) ? '  ·  Custom API' : ''}
+          </Text>
           <View style={s.suggGrid}>
             {SUGGESTIONS.map(sg => (
-              <TouchableOpacity key={sg} style={s.suggCard} onPress={() => send(sg)} activeOpacity={.7}>
+              <TouchableOpacity key={sg} style={s.suggCard} onPress={() => send(sg)} activeOpacity={0.7}>
                 <Text style={s.suggText}>{sg}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
       ) : (
-        <FlatList ref={listRef} data={messages} keyExtractor={(_, i) => i.toString()} contentContainerStyle={s.msgList}
+        <FlatList
+          ref={listRef}
+          data={messages.filter(m => m.role !== 'system')}
+          keyExtractor={(_, i) => i.toString()}
+          contentContainerStyle={s.msgList}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item: msg, index }) => (
-            <View style={[s.msgRow, msg.role==='user' ? s.userRow : s.asstRow]}>
-              <View style={[s.avatar, msg.role==='user' ? s.userAv : s.asstAv]}>
-                <Text style={{ fontSize:9, color: msg.role==='user'?C.teal:C.muted }}>{msg.role==='user'?'You':'AI'}</Text>
-              </View>
-              <View style={[s.bubble, msg.role==='user' ? s.userBubble : s.asstBubble]}>
+            <View style={[
+              s.msgRow,
+              msg.role === 'user' ? s.userRow : s.asstRow,
+            ]}>
+              {msg.role === 'assistant' && (
+                <View style={s.asstAvatar}>
+                  <Image source={require('../../assets/bayze-logo.png')} style={{ width: 14, height: 14 }} resizeMode="contain" />
+                </View>
+              )}
+              <View style={[
+                s.bubble,
+                msg.role === 'user' ? s.userBubble : s.asstBubble,
+              ]}>
                 {msg.content
-                  ? <Text style={s.msgText} selectable>{msg.content}</Text>
-                  : <Text style={{ color:C.teal }}>▌</Text>
+                  ? <Text style={[s.msgText, msg.role === 'user' && s.userMsgText]} selectable>{msg.content}</Text>
+                  : <Text style={{ color: C.teal, fontSize: 16 }}>▌</Text>
                 }
-                {msg.role==='assistant' && streaming && index===messages.length-1 && msg.content
-                  ? <Text style={{ color:C.teal }}>▌</Text> : null
+                {msg.role === 'assistant' && streaming && index === messages.filter(m=>m.role!=='system').length - 1 && msg.content
+                  ? <Text style={{ color: C.teal }}>▌</Text> : null
                 }
               </View>
+              {msg.role === 'user' && (
+                <View style={s.userAvatar}>
+                  <Text style={{ fontSize: 11, color: C.teal }}>You</Text>
+                </View>
+              )}
             </View>
           )}
         />
@@ -132,56 +220,159 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
-      {/* Input bar */}
-      <View style={s.inputWrap}>
-        <TextInput style={s.inputField} value={input} onChangeText={setInput} multiline
-          placeholder={`Message ${curModel.name}…`} placeholderTextColor={C.dim}
-          editable={!streaming} returnKeyType="default" />
-        <TouchableOpacity style={[s.sendBtn, (!input.trim()||streaming) && { opacity:.3 }]}
-          onPress={() => send()} disabled={!input.trim()||streaming} activeOpacity={.8}>
+      {/* ── Input ──────────────────────────────────────────────────────────── */}
+      <View style={s.inputRow}>
+        <TextInput
+          style={s.inputField}
+          value={input} onChangeText={setInput}
+          multiline
+          placeholder={`Message ${curModel.name}…`}
+          placeholderTextColor={C.dim}
+          editable={!streaming}
+        />
+        <TouchableOpacity
+          style={[s.sendBtn, (!input.trim() || streaming) && s.sendBtnDisabled]}
+          onPress={() => send()}
+          disabled={!input.trim() || streaming}
+          activeOpacity={0.8}
+        >
           {streaming
             ? <ActivityIndicator size="small" color="#050505" />
             : <Text style={s.sendArrow}>↑</Text>
           }
         </TouchableOpacity>
       </View>
+
+      {/* ── Model Picker Modal ─────────────────────────────────────────────── */}
+      <Modal visible={showModels} transparent animationType="slide" onRequestClose={() => setShowModels(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setShowModels(false)}>
+          <Pressable style={s.sheet} onPress={e => e.stopPropagation()}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>Select Model</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {MODELS.map(m => (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[s.sheetRow, m.id === model && s.sheetRowActive]}
+                  onPress={() => { setModel(m.id); setShowModels(false) }}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={[s.sheetRowName, m.id === model && { color: C.teal }]}>{m.name}</Text>
+                      {m.free && (
+                        <View style={s.freePill}>
+                          <Text style={s.freePillText}>Free credits</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={s.sheetRowSub}>{m.group} · {m.tag}</Text>
+                  </View>
+                  {m.id === model && <Text style={{ color: C.teal, fontSize: 18 }}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Language Picker Modal ──────────────────────────────────────────── */}
+      <Modal visible={showLangs} transparent animationType="slide" onRequestClose={() => setShowLangs(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setShowLangs(false)}>
+          <Pressable style={s.sheet} onPress={e => e.stopPropagation()}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>AI Response Language</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {CHAT_LANGS.map(l => (
+                <TouchableOpacity
+                  key={l.code}
+                  style={[s.sheetRow, l.code === responseLang && s.sheetRowActive]}
+                  onPress={() => {
+                    setResponseLang(l.code)
+                    AsyncStorage.setItem('response_lang', l.code)
+                    setShowLangs(false)
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View>
+                    <Text style={[s.sheetRowName, l.code === responseLang && { color: C.teal }]}>
+                      {l.native}
+                    </Text>
+                    {l.label !== l.native && (
+                      <Text style={s.sheetRowSub}>{l.label}</Text>
+                    )}
+                  </View>
+                  {l.code === responseLang && <Text style={{ color: C.teal, fontSize: 18 }}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
     </KeyboardAvoidingView>
   )
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  header:       { flexDirection:'row', alignItems:'center', paddingHorizontal:14, paddingTop:Platform.OS==='ios'?52:12, paddingBottom:10, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border },
-  modelBtn:     { flex:1, flexDirection:'row', alignItems:'center', backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, borderRadius:8, paddingHorizontal:12, paddingVertical:7 },
-  modelBtnText: { fontSize:14, fontWeight:'600', color:C.text },
-  modelTag:     { fontSize:12, color:C.muted },
-  clearBtn:     { marginLeft:10, paddingHorizontal:12, paddingVertical:7, borderWidth:1, borderColor:C.border, borderRadius:6 },
-  clearBtnText: { fontSize:12, color:C.muted },
-  picker:       { maxHeight:220, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border },
-  pickerItem:   { flexDirection:'row', justifyContent:'space-between', padding:12, borderRadius:6, marginBottom:2 },
-  pickerName:   { fontSize:14, color:C.text },
-  pickerTag:    { fontSize:12, color:C.muted },
-  welcome:      { flex:1, alignItems:'center', justifyContent:'center', padding:24 },
-  welcomeCircle:{ width:52, height:52, borderRadius:26, borderWidth:2, borderColor:C.teal2, backgroundColor:C.teal3, marginBottom:14 },
-  welcomeTitle: { fontSize:22, fontWeight:'700', color:C.text, marginBottom:6 },
-  welcomeSub:   { fontSize:13, color:C.muted, marginBottom:24 },
-  suggGrid:     { width:'100%', flexDirection:'row', flexWrap:'wrap', gap:8, justifyContent:'center' },
-  suggCard:     { width:'47%', backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, borderRadius:8, padding:12 },
-  suggText:     { fontSize:13, color:C.muted, lineHeight:18 },
-  msgList:      { padding:16, gap:16 },
-  msgRow:       { flexDirection:'row', gap:10, maxWidth:'90%' },
-  userRow:      { alignSelf:'flex-end', flexDirection:'row-reverse' },
-  asstRow:      { alignSelf:'flex-start' },
-  avatar:       { width:26, height:26, borderRadius:13, borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center', flexShrink:0 },
-  userAv:       { backgroundColor:C.teal3, borderColor:C.teal2 },
-  asstAv:       { backgroundColor:C.bg4 },
-  bubble:       { flex:1, maxWidth:'85%' },
-  userBubble:   { backgroundColor:C.bg4, borderWidth:1, borderColor:C.border2, borderRadius:12, padding:10 },
-  asstBubble:   { paddingTop:2 },
-  msgText:      { fontSize:14, color:C.text, lineHeight:22 },
-  errBar:       { margin:12, backgroundColor:'rgba(232,69,60,.1)', borderWidth:1, borderColor:'rgba(232,69,60,.3)', borderRadius:8, padding:10 },
-  errText:      { color:C.red, fontSize:13 },
-  inputWrap:    { flexDirection:'row', alignItems:'flex-end', margin:12, gap:8, backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, borderRadius:12, padding:8, paddingLeft:14 },
-  inputField:   { flex:1, color:C.text, fontSize:15, maxHeight:120, paddingVertical:4 },
-  sendBtn:      { width:36, height:36, borderRadius:8, backgroundColor:C.teal, alignItems:'center', justifyContent:'center', flexShrink:0 },
-  sendArrow:    { color:'#050505', fontSize:18, fontWeight:'700', marginTop:-1 },
+  // Header
+  header:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:14, paddingTop: Platform.OS==='ios' ? 54 : 14, paddingBottom:10, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border },
+  headerLogo:   { width:28, height:28, borderRadius:7, backgroundColor:'rgba(255,255,255,0.9)', alignItems:'center', justifyContent:'center', padding:3 },
+  headerLogoImg:{ width:22, height:22 },
+  modelBtn:     { flexDirection:'row', alignItems:'center', gap:5, backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, borderRadius:8, paddingHorizontal:10, paddingVertical:6, flexShrink:1 },
+  modelName:    { fontSize:13, fontWeight:'600', color:C.text, flexShrink:1 },
+  modelChevron: { fontSize:10, color:C.muted },
+  freeBadge:    { fontSize:9, color:C.teal, backgroundColor:C.teal3, borderRadius:4, paddingHorizontal:4, paddingVertical:1, fontWeight:'600' },
+  iconBtn:      { padding:7, borderRadius:7, backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center', position:'relative' },
+  iconBtnText:  { fontSize:14, color:C.muted },
+  langDot:      { position:'absolute', top:4, right:4, width:6, height:6, borderRadius:3, backgroundColor:C.teal },
+
+  // Welcome
+  welcome:         { flex:1, alignItems:'center', justifyContent:'center', padding:24 },
+  welcomeLogoWrap: { width:72, height:72, borderRadius:18, backgroundColor:'rgba(255,255,255,0.92)', alignItems:'center', justifyContent:'center', marginBottom:14, padding:7 },
+  welcomeLogoImg:  { width:58, height:58 },
+  welcomeTitleRow: { flexDirection:'row', alignItems:'baseline', gap:8, marginBottom:6 },
+  welcomeTitle:    { fontSize:24, fontWeight:'700', color:C.text },
+  welcomeZh:       { fontSize:14, color:'rgba(255,255,255,0.3)', letterSpacing:.6 },
+  welcomeSub:      { fontSize:13, color:C.muted, marginBottom:28, textAlign:'center' },
+  suggGrid:        { width:'100%', flexDirection:'row', flexWrap:'wrap', gap:8, justifyContent:'center' },
+  suggCard:        { width:'47%', backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, borderRadius:10, padding:13 },
+  suggText:        { fontSize:13, color:C.muted, lineHeight:19 },
+
+  // Messages
+  msgList:     { padding:16, paddingBottom:8, gap:14 },
+  msgRow:      { flexDirection:'row', alignItems:'flex-end', gap:8 },
+  userRow:     { flexDirection:'row-reverse', alignSelf:'flex-end', maxWidth:'88%' },
+  asstRow:     { alignSelf:'flex-start', maxWidth:'88%' },
+  asstAvatar:  { width:26, height:26, borderRadius:8, backgroundColor:'rgba(255,255,255,0.85)', alignItems:'center', justifyContent:'center', flexShrink:0, marginBottom:2, padding:4 },
+  userAvatar:  { width:26, height:26, borderRadius:13, backgroundColor:C.teal3, borderWidth:1, borderColor:C.teal2, alignItems:'center', justifyContent:'center', flexShrink:0, marginBottom:2 },
+  bubble:      { maxWidth:'100%' },
+  userBubble:  { backgroundColor:C.teal2, borderRadius:16, borderBottomRightRadius:4, paddingHorizontal:14, paddingVertical:10 },
+  asstBubble:  { backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, borderRadius:16, borderBottomLeftRadius:4, paddingHorizontal:14, paddingVertical:10 },
+  msgText:     { fontSize:15, color:C.text, lineHeight:23 },
+  userMsgText: { color:'#fff' },
+
+  // Error
+  errBar:  { margin:12, backgroundColor:'rgba(232,69,60,.1)', borderWidth:1, borderColor:'rgba(232,69,60,.3)', borderRadius:8, padding:10 },
+  errText: { color:C.red, fontSize:13 },
+
+  // Input
+  inputRow:     { flexDirection:'row', alignItems:'flex-end', margin:12, gap:8, backgroundColor:C.bg3, borderWidth:1.5, borderColor:C.border2, borderRadius:14, padding:8, paddingLeft:14 },
+  inputField:   { flex:1, color:C.text, fontSize:15, maxHeight:130, paddingVertical:4, lineHeight:22 },
+  sendBtn:      { width:38, height:38, borderRadius:10, backgroundColor:C.teal, alignItems:'center', justifyContent:'center', flexShrink:0 },
+  sendBtnDisabled: { opacity:0.3 },
+  sendArrow:    { color:'#050505', fontSize:20, fontWeight:'800', marginTop:-1 },
+
+  // Modals
+  modalOverlay: { flex:1, backgroundColor:'rgba(0,0,0,0.6)', justifyContent:'flex-end' },
+  sheet:        { backgroundColor:C.bg2, borderTopLeftRadius:20, borderTopRightRadius:20, padding:20, paddingBottom:36, maxHeight:'75%' },
+  sheetHandle:  { width:40, height:4, backgroundColor:C.border2, borderRadius:2, alignSelf:'center', marginBottom:16 },
+  sheetTitle:   { fontSize:16, fontWeight:'700', color:C.text, marginBottom:14 },
+  sheetRow:     { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingVertical:13, borderBottomWidth:1, borderBottomColor:C.border },
+  sheetRowActive:{ backgroundColor:'rgba(26,235,168,0.04)', marginHorizontal:-4, paddingHorizontal:4, borderRadius:8 },
+  sheetRowName: { fontSize:15, color:C.text, fontWeight:'500' },
+  sheetRowSub:  { fontSize:12, color:C.muted, marginTop:2 },
+  freePill:     { backgroundColor:C.teal3, borderRadius:5, paddingHorizontal:6, paddingVertical:2 },
+  freePillText: { fontSize:10, color:C.teal, fontWeight:'600' },
 })

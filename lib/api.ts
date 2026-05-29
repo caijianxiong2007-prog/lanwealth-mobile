@@ -1,32 +1,74 @@
 const APP_URL = 'https://app.lanwealth.com'
 
 export const MODELS = [
-  { id: 'deepseek-v3',      name: 'DeepSeek V3',      tag: 'Fast',      group: 'DeepSeek' },
-  { id: 'deepseek-r1',      name: 'DeepSeek R1',      tag: 'Reasoning', group: 'DeepSeek' },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', tag: 'Fast',      group: 'Google'   },
-  { id: 'gemini-2.5-pro',   name: 'Gemini 2.5 Pro',   tag: 'Advanced',  group: 'Google'   },
-  { id: 'claude-haiku',     name: 'Claude Haiku',      tag: 'Fast',      group: 'Claude'   },
-  { id: 'claude-sonnet-4',  name: 'Claude Sonnet 4',  tag: 'Balanced',  group: 'Claude'   },
-  { id: 'gpt-4o-mini',      name: 'GPT-4o mini',      tag: 'Fast',      group: 'OpenAI'   },
-  { id: 'gpt-4o',           name: 'GPT-4o',           tag: 'Balanced',  group: 'OpenAI'   },
+  { id: 'deepseek-v3',      name: 'DeepSeek V3',      tag: 'Fast',      group: 'DeepSeek', free: true  },
+  { id: 'deepseek-r1',      name: 'DeepSeek R1',      tag: 'Reasoning', group: 'DeepSeek', free: false },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', tag: 'Fast',      group: 'Google',   free: true  },
+  { id: 'gemini-2.5-pro',   name: 'Gemini 2.5 Pro',   tag: 'Advanced',  group: 'Google',   free: false },
+  { id: 'claude-haiku',     name: 'Claude Haiku',      tag: 'Fast',      group: 'Claude',   free: false },
+  { id: 'claude-sonnet-4',  name: 'Claude Sonnet 4',  tag: 'Balanced',  group: 'Claude',   free: false },
+  { id: 'gpt-4o-mini',      name: 'GPT-4o mini',      tag: 'Fast',      group: 'OpenAI',   free: false },
+  { id: 'gpt-4o',           name: 'GPT-4o',           tag: 'Balanced',  group: 'OpenAI',   free: false },
 ]
 
-export type Message = { role: 'user' | 'assistant'; content: string }
+// Languages the AI can respond in (via system prompt injection)
+export const CHAT_LANGS = [
+  { code: '',   label: 'Auto',        native: 'Auto'           },
+  { code: 'en', label: 'English',     native: 'English'        },
+  { code: 'zh', label: 'Chinese',     native: '中文'            },
+  { code: 'ja', label: 'Japanese',    native: '日本語'          },
+  { code: 'ko', label: 'Korean',      native: '한국어'          },
+  { code: 'vi', label: 'Vietnamese',  native: 'Tiếng Việt'     },
+  { code: 'th', label: 'Thai',        native: 'ภาษาไทย'        },
+  { code: 'ms', label: 'Malay',       native: 'Bahasa Melayu'  },
+  { code: 'id', label: 'Indonesian',  native: 'Bahasa Indonesia'},
+  { code: 'es', label: 'Spanish',     native: 'Español'        },
+  { code: 'fr', label: 'French',      native: 'Français'       },
+  { code: 'ar', label: 'Arabic',      native: 'العربية'        },
+]
 
-export async function* streamChat(
-  accessToken: string,
-  model: string,
-  messages: Message[],
-): AsyncGenerator<string> {
-  const res = await fetch(`${APP_URL}/api/chat`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-    body:    JSON.stringify({ model, messages }),
-  })
+export type Message = { role: 'user' | 'assistant' | 'system'; content: string }
+
+interface ChatOptions {
+  accessToken:   string
+  model:         string
+  messages:      Message[]
+  responseLang?: string   // ISO code — prepended as system prompt
+  customApiUrl?: string   // OpenAI-compatible base URL (BYOK)
+  customApiKey?: string   // API key for custom endpoint
+}
+
+export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
+  const { accessToken, model, messages, responseLang, customApiUrl, customApiKey } = opts
+
+  // Prepend system language instruction if set
+  const allMessages: Message[] = []
+  if (responseLang) {
+    const langNative = CHAT_LANGS.find(l => l.code === responseLang)?.native ?? responseLang
+    allMessages.push({ role: 'system', content: `Please respond in ${langNative}.` })
+  }
+  allMessages.push(...messages)
+
+  const useCustom = !!(customApiUrl && customApiKey)
+  const url = useCustom
+    ? `${customApiUrl.replace(/\/$/, '')}/chat/completions`
+    : `${APP_URL}/api/chat`
+
+  const headers: Record<string, string> = {
+    'Content-Type':  'application/json',
+    'Authorization': `Bearer ${useCustom ? customApiKey : accessToken}`,
+  }
+
+  const body = useCustom
+    ? JSON.stringify({ model, messages: allMessages, stream: true })
+    : JSON.stringify({ model, messages: allMessages })
+
+  const res = await fetch(url, { method: 'POST', headers, body })
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
     throw new Error(data.error ?? `HTTP ${res.status}`)
   }
+
   const reader  = res.body!.getReader()
   const decoder = new TextDecoder()
   let   buf     = ''
