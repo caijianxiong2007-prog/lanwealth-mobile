@@ -64,26 +64,51 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
     ? JSON.stringify({ model, messages: allMessages, stream: true })
     : JSON.stringify({ model, messages: allMessages })
 
-  const res = await fetch(url, { method: 'POST', headers, body })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-    throw new Error(data.error ?? `HTTP ${res.status}`)
-  }
+  // React Native's fetch does not expose a streaming body (res.body.getReader is
+  // undefined), so we stream over XMLHttpRequest, whose responseText accumulates
+  // and fires onprogress on both Expo Go and production native builds.
+  const queue: string[] = []
+  let finished = false
+  let failed: Error | null = null
+  let wake: (() => void) | null = null
+  const bump = () => { const w = wake; wake = null; w?.() }
 
-  const reader  = res.body!.getReader()
-  const decoder = new TextDecoder()
-  let   buf     = ''
-  while (true) {
-    const { done, value } = await reader.read(); if (done) break
-    buf += decoder.decode(value, { stream: true })
+  const xhr = new XMLHttpRequest()
+  xhr.open('POST', url)
+  for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v)
+
+  let seen = 0
+  let buf  = ''
+  xhr.onprogress = () => {
+    buf += xhr.responseText.slice(seen)
+    seen = xhr.responseText.length
     const lines = buf.split('\n'); buf = lines.pop() ?? ''
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue
-      const payload = line.slice(6); if (payload === '[DONE]') return
+      const payload = line.slice(6)
+      if (payload === '[DONE]') continue
       try {
         const delta = (JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content
-        if (delta) yield delta
+        if (delta) queue.push(delta)
       } catch {}
     }
+    bump()
+  }
+  xhr.onload = () => {
+    if (xhr.status >= 400) {
+      let msg = `HTTP ${xhr.status}`
+      try { msg = (JSON.parse(xhr.responseText) as { error?: string }).error ?? msg } catch {}
+      failed = new Error(msg)
+    }
+    finished = true; bump()
+  }
+  xhr.onerror = () => { failed = new Error('Network request failed'); finished = true; bump() }
+  xhr.send(body)
+
+  while (true) {
+    if (queue.length) { yield queue.shift()!; continue }
+    if (failed)   throw failed
+    if (finished) return
+    await new Promise<void>(resolve => { wake = resolve })
   }
 }
