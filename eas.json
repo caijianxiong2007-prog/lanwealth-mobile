@@ -30,9 +30,9 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "FILL_IN_APPLE_ID",
-        "ascAppId": "FILL_IN_APP_STORE_CONNECT_APP_ID",
-        "appleTeamId": "FILL_IN_TEAM_ID"
+        "appleId": "1753901@qq.com",
+        "ascAppId": "6774803277",
+        "appleTeamId": "2473SV2X9M"
       }
     }
   }
