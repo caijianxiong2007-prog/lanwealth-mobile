@@ -11,6 +11,7 @@ export default function LoginScreen() {
   const [showPw,  setShowPw]  = useState(false)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
+  const showExternalSignup = Platform.OS !== 'ios'
 
   async function signIn() {
     if (!email || !pass) return
@@ -81,12 +82,14 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginTop:20 }}>
-          <Text style={s.hint}>No account?</Text>
-          <TouchableOpacity onPress={() => Linking.openURL('https://app.lanwealth.com/auth/signup')} activeOpacity={.7}>
-            <Text style={[s.hint, { color:'#1AEBA8', fontWeight:'600' }]}>Sign up free →</Text>
-          </TouchableOpacity>
-        </View>
+        {showExternalSignup && (
+          <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginTop:20 }}>
+            <Text style={s.hint}>No account?</Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://app.lanwealth.com/auth/signup')} activeOpacity={.7}>
+              <Text style={[s.hint, { color:'#1AEBA8', fontWeight:'600' }]}>Sign up free →</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   )

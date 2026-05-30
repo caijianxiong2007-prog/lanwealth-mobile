@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView,
-         Linking, Image, TextInput, Alert } from 'react-native'
+         Linking, Image, TextInput, Alert, Platform } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase }  from '../../lib/supabase'
+import { getSecret, removeSecret, setSecret } from '../../lib/secureSettings'
 
 const C = { bg:'#0A0A0B', bg2:'#111113', bg3:'#18181C', border:'#222228', border2:'#2C2C35', text:'#E4E4EA', muted:'#606070', dim:'#38383F', teal:'#1AEBA8', teal2:'#0F8C63', teal3:'#083D2B', red:'#E8453C' }
 
@@ -10,11 +11,12 @@ export default function SettingsScreen() {
   const [apiUrl,  setApiUrl]  = useState('')
   const [apiKey,  setApiKey]  = useState('')
   const [saved,   setSaved]   = useState(false)
+  const showExternalLinks = Platform.OS !== 'ios'
 
   useEffect(() => {
     Promise.all([
       AsyncStorage.getItem('custom_api_url'),
-      AsyncStorage.getItem('custom_api_key'),
+      getSecret('custom_api_key'),
     ]).then(([url, key]) => {
       if (url) setApiUrl(url)
       if (key) setApiKey(key)
@@ -23,7 +25,7 @@ export default function SettingsScreen() {
 
   async function saveCustomApi() {
     await AsyncStorage.setItem('custom_api_url', apiUrl.trim())
-    await AsyncStorage.setItem('custom_api_key', apiKey.trim())
+    await setSecret('custom_api_key', apiKey.trim())
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -32,7 +34,8 @@ export default function SettingsScreen() {
     Alert.alert('Clear Custom API', 'Remove custom API settings and use LanWealth API?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Clear', style: 'destructive', onPress: async () => {
-        await AsyncStorage.multiRemove(['custom_api_url', 'custom_api_key'])
+        await AsyncStorage.removeItem('custom_api_url')
+        await removeSecret('custom_api_key')
         setApiUrl(''); setApiKey('')
       }},
     ])
@@ -57,22 +60,26 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* Platform links */}
-      <Text style={s.section}>Platform</Text>
-      <View style={s.card}>
-        <TouchableOpacity style={s.row} onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard/billing')} activeOpacity={.7}>
-          <Text style={s.rowText}>💳  Top up credits</Text>
-          <Text style={{ color:C.teal, fontSize:13 }}>Billing ↗</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={s.row} onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard')} activeOpacity={.7}>
-          <Text style={s.rowText}>🌐  Web Dashboard</Text>
-          <Text style={{ color:C.muted, fontSize:13 }}>↗</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => Linking.openURL('https://app.lanwealth.com/download')} activeOpacity={.7}>
-          <Text style={s.rowText}>💻  Desktop App</Text>
-          <Text style={{ color:C.muted, fontSize:13 }}>Download ↗</Text>
-        </TouchableOpacity>
-      </View>
+      {showExternalLinks && (
+        <>
+          {/* Platform links */}
+          <Text style={s.section}>Platform</Text>
+          <View style={s.card}>
+            <TouchableOpacity style={s.row} onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard/billing')} activeOpacity={.7}>
+              <Text style={s.rowText}>💳  Top up credits</Text>
+              <Text style={{ color:C.teal, fontSize:13 }}>Billing ↗</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.row} onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard')} activeOpacity={.7}>
+              <Text style={s.rowText}>🌐  Web Dashboard</Text>
+              <Text style={{ color:C.muted, fontSize:13 }}>↗</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => Linking.openURL('https://app.lanwealth.com/download')} activeOpacity={.7}>
+              <Text style={s.rowText}>💻  Desktop App</Text>
+              <Text style={{ color:C.muted, fontSize:13 }}>Download ↗</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
 
       {/* Custom API / BYOK */}
       <Text style={s.section}>Custom API (optional)</Text>

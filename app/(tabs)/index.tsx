@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase }                  from '../../lib/supabase'
 import { streamChat, MODELS, CHAT_LANGS } from '../../lib/api'
 import type { Message }              from '../../lib/api'
+import { getSecret }                 from '../../lib/secureSettings'
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
@@ -53,6 +54,7 @@ export default function ChatScreen() {
 
   const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
   const curLang  = CHAT_LANGS.find(l => l.code === responseLang) ?? CHAT_LANGS[0]
+  const showExternalBilling = Platform.OS !== 'ios'
 
   // Load persisted state
   useEffect(() => {
@@ -60,7 +62,7 @@ export default function ChatScreen() {
       AsyncStorage.getItem('mobile_messages'),
       AsyncStorage.getItem('response_lang'),
       AsyncStorage.getItem('custom_api_url'),
-      AsyncStorage.getItem('custom_api_key'),
+      getSecret('custom_api_key'),
       AsyncStorage.getItem('conv_title'),
     ]).then(([msgs, lang, apiUrl, apiKey, title]) => {
       if (msgs) setMessages(JSON.parse(msgs))
@@ -188,12 +190,14 @@ export default function ChatScreen() {
             <Text style={s.iconBtnText}>🌐</Text>
             {responseLang ? <Text style={s.langDot} /> : null}
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard/billing')}
-            style={[s.iconBtn, { paddingHorizontal: 10 }]} activeOpacity={0.7}
-          >
-            <Text style={[s.iconBtnText, { color: C.teal, fontSize: 12 }]}>充值 +</Text>
-          </TouchableOpacity>
+          {showExternalBilling && (
+            <TouchableOpacity
+              onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard/billing')}
+              style={[s.iconBtn, { paddingHorizontal: 10 }]} activeOpacity={0.7}
+            >
+              <Text style={[s.iconBtnText, { color: C.teal, fontSize: 12 }]}>充值 +</Text>
+            </TouchableOpacity>
+          )}
           {/* 🗑 moved to title bar below */}
         </View>
       </View>
@@ -382,30 +386,29 @@ export default function ChatScreen() {
                 ✦ New model will read previous messages
               </Text>
             )}
-            {(
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {MODELS.map(m => (
-                  <TouchableOpacity
-                    key={m.id}
-                    style={[s.sheetRow, m.id === model && s.sheetRowActive]}
-                    onPress={() => { setModel(m.id); setShowModels(false) }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Text style={[s.sheetRowName, m.id === model && { color: C.teal }]}>{m.name}</Text>
-                        {m.free && (
-                          <View style={s.freePill}>
-                            <Text style={s.freePillText}>Free credits</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={s.sheetRowSub}>{m.group} · {m.tag}</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {MODELS.map(m => (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[s.sheetRow, m.id === model && s.sheetRowActive]}
+                  onPress={() => { setModel(m.id); setShowModels(false) }}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={[s.sheetRowName, m.id === model && { color: C.teal }]}>{m.name}</Text>
+                      {m.free && (
+                        <View style={s.freePill}>
+                          <Text style={s.freePillText}>Free credits</Text>
+                        </View>
+                      )}
                     </View>
-                    {m.id === model && <Text style={{ color: C.teal, fontSize: 18 }}>✓</Text>}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                    <Text style={s.sheetRowSub}>{m.group} · {m.tag}</Text>
+                  </View>
+                  {m.id === model && <Text style={{ color: C.teal, fontSize: 18 }}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
