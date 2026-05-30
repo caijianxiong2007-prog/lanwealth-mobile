@@ -23,6 +23,7 @@
         "buildType": "app-bundle"
       },
       "ios": {
+        "image": "latest",
         "buildConfiguration": "Release"
       }
     }
