@@ -66,12 +66,12 @@ For the initial iOS release, the app does not provide external payment links or 
 
 ### 测试账号
 
-创建一个专门给 Apple 审核的测试账号，并确保账号内有足够 credits。
+专门给 Apple 审核的测试账号（已创建并充值 $10 credits，已验证可登录）：
 
-- Email：待填写
-- Password：待填写
+- Email：apple-review@lanwealth.com
+- Password：Bayze-Review-2026
 
-建议密码不要使用个人常用密码。审核通过后可以改掉或禁用这个账号。
+邮箱已由管理员确认，可直接登录。审核通过后可改密码或禁用此账号。
 
 ## App 隐私问卷建议
 
