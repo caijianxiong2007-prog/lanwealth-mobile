@@ -1,17 +1,19 @@
 import { useState }         from 'react'
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
          KeyboardAvoidingView, Platform, Image, Linking } from 'react-native'
-import { supabase }          from '../../lib/supabase'
+import { useRouter }         from 'expo-router'
+import { supabase, signInAsGuest } from '../../lib/supabase'
 
 const C = { bg:'#0A0A0B', bg2:'#111113', bg3:'#18181C', border:'#222228', border2:'#2C2C35', text:'#E4E4EA', muted:'#606070', teal:'#1AEBA8', teal2:'#0F8C63', teal3:'#083D2B', red:'#E8453C' }
 
 export default function LoginScreen() {
+  const router = useRouter()
   const [email,   setEmail]   = useState('')
   const [pass,    setPass]    = useState('')
   const [showPw,  setShowPw]  = useState(false)
   const [loading, setLoading] = useState(false)
+  const [guestLoading, setGuestLoading] = useState(false)
   const [error,   setError]   = useState('')
-  const showExternalSignup = Platform.OS !== 'ios'
 
   async function signIn() {
     if (!email || !pass) return
@@ -19,6 +21,17 @@ export default function LoginScreen() {
     const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass })
     setLoading(false)
     if (err) setError(err.message)
+  }
+
+  async function continueAsGuest() {
+    setGuestLoading(true); setError('')
+    try {
+      await signInAsGuest()          // RootLayout's auth listener routes to (tabs)
+      router.replace('/(tabs)')
+    } catch {
+      setGuestLoading(false)
+      setError('Guest mode is unavailable right now. Please sign in.')
+    }
   }
 
   return (
@@ -38,7 +51,7 @@ export default function LoginScreen() {
             <Text style={s.logoText}>Bayze</Text>
             <Text style={s.logoZh}>白泽</Text>
           </View>
-          <Text style={s.logoSub}>Sign in to start chatting</Text>
+          <Text style={s.logoSub}>Sign in, or continue as a guest</Text>
         </View>
 
         {/* Card */}
@@ -82,14 +95,30 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
-        {showExternalSignup && (
-          <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginTop:20 }}>
-            <Text style={s.hint}>No account?</Text>
-            <TouchableOpacity onPress={() => Linking.openURL('https://app.lanwealth.com/auth/signup')} activeOpacity={.7}>
-              <Text style={[s.hint, { color:'#1AEBA8', fontWeight:'600' }]}>Sign up free →</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Divider */}
+        <View style={s.dividerRow}>
+          <View style={s.dividerLine} />
+          <Text style={s.dividerText}>or</Text>
+          <View style={s.dividerLine} />
+        </View>
+
+        {/* Guest mode — use the app without an account */}
+        <TouchableOpacity
+          style={[s.guestBtn, guestLoading && { opacity:.5 }]}
+          onPress={continueAsGuest} disabled={guestLoading} activeOpacity={.8}
+        >
+          <Text style={s.guestBtnText}>
+            {guestLoading ? 'Starting…' : 'Continue as guest →'}
+          </Text>
+        </TouchableOpacity>
+        <Text style={s.guestHint}>No account needed. Sign in later to save chats & top up.</Text>
+
+        <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginTop:20 }}>
+          <Text style={s.hint}>No account?</Text>
+          <TouchableOpacity onPress={() => Linking.openURL('https://app.lanwealth.com/auth/signup')} activeOpacity={.7}>
+            <Text style={[s.hint, { color:'#1AEBA8', fontWeight:'600' }]}>Sign up free →</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   )
@@ -114,4 +143,11 @@ const s = StyleSheet.create({
   btnText:     { color:'#050505', fontWeight:'700', fontSize:15 },
   hint:        { marginTop:20, fontSize:12, color:C.muted },
   forgotLink:  { fontSize:12, color:C.teal, opacity:.85 },
+
+  dividerRow:  { flexDirection:'row', alignItems:'center', gap:10, width:'100%', maxWidth:360, marginTop:22 },
+  dividerLine: { flex:1, height:1, backgroundColor:C.border },
+  dividerText: { fontSize:12, color:C.muted },
+  guestBtn:    { marginTop:16, width:'100%', maxWidth:360, backgroundColor:'transparent', borderWidth:1, borderColor:C.border2, borderRadius:8, padding:13, alignItems:'center' },
+  guestBtnText:{ color:C.text, fontWeight:'600', fontSize:15 },
+  guestHint:   { marginTop:8, fontSize:11, color:C.muted, textAlign:'center', maxWidth:340 },
 })

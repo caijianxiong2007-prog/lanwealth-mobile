@@ -2,8 +2,9 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
   KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
-  Modal, Pressable, Linking, Image, Keyboard,
+  Modal, Pressable, Linking, Image, Keyboard, Alert,
 } from 'react-native'
+import { useRouter } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase }                  from '../../lib/supabase'
 import { streamChat, MODELS, CHAT_LANGS } from '../../lib/api'
@@ -35,6 +36,8 @@ const SUGGESTIONS = [
 ]
 
 export default function ChatScreen() {
+  const router = useRouter()
+  const [guest,       setGuest]       = useState(false)   // anonymous user → free models only
   const [model,       setModel]       = useState('deepseek-v3')
   const [messages,    setMessages]    = useState<Message[]>([])
   const [input,       setInput]       = useState('')
@@ -72,6 +75,33 @@ export default function ChatScreen() {
       if (title) setConvTitle(title)
     })
   }, [])
+
+  // Detect guest (anonymous) users — they may only use free models
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      const g = !!user?.is_anonymous
+      setGuest(g)
+      // If a guest somehow has a premium model selected, fall back to a free one
+      if (g) setModel(m => (MODELS.find(x => x.id === m)?.free ? m : (MODELS.find(x => x.free)?.id ?? m)))
+    })
+  }, [])
+
+  // Pick a model from the sheet; guests can't select locked (premium) models
+  function selectModel(m: typeof MODELS[number]) {
+    if (guest && !m.free) {
+      Alert.alert(
+        'Sign in to unlock',
+        `${m.name} is available with an account. Free models are available to guests — sign in or create a free account to use all models.`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign in', onPress: () => { setShowModels(false); router.push('/(auth)/login') } },
+        ],
+      )
+      return
+    }
+    setModel(m.id)
+    setShowModels(false)
+  }
 
   const send = useCallback(async (text?: string) => {
     const content = (text ?? input).trim()
@@ -386,28 +416,40 @@ export default function ChatScreen() {
                 ✦ New model will read previous messages
               </Text>
             )}
+            {guest && (
+              <Text style={{ fontSize: 11, color: C.muted, textAlign: 'center', marginBottom: 8 }}>
+                🔒 Premium models need an account — sign in to unlock all
+              </Text>
+            )}
             <ScrollView showsVerticalScrollIndicator={false}>
-              {MODELS.map(m => (
+              {MODELS.map(m => {
+                const locked = guest && !m.free
+                return (
                 <TouchableOpacity
                   key={m.id}
-                  style={[s.sheetRow, m.id === model && s.sheetRowActive]}
-                  onPress={() => { setModel(m.id); setShowModels(false) }}
+                  style={[s.sheetRow, m.id === model && s.sheetRowActive, locked && { opacity: 0.4 }]}
+                  onPress={() => selectModel(m)}
                   activeOpacity={0.7}
                 >
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Text style={[s.sheetRowName, m.id === model && { color: C.teal }]}>{m.name}</Text>
-                      {m.free && (
+                      {m.free ? (
                         <View style={s.freePill}>
-                          <Text style={s.freePillText}>Free credits</Text>
+                          <Text style={s.freePillText}>Free</Text>
                         </View>
-                      )}
+                      ) : locked ? (
+                        <View style={s.lockPill}>
+                          <Text style={s.lockPillText}>🔒 Sign in</Text>
+                        </View>
+                      ) : null}
                     </View>
                     <Text style={s.sheetRowSub}>{m.group} · {m.tag}</Text>
                   </View>
                   {m.id === model && <Text style={{ color: C.teal, fontSize: 18 }}>✓</Text>}
                 </TouchableOpacity>
-              ))}
+                )
+              })}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -523,4 +565,6 @@ const s = StyleSheet.create({
   sheetRowSub:  { fontSize:12, color:C.muted, marginTop:2 },
   freePill:     { backgroundColor:C.teal3, borderRadius:5, paddingHorizontal:6, paddingVertical:2 },
   freePillText: { fontSize:10, color:C.teal, fontWeight:'600' },
+  lockPill:     { backgroundColor:C.bg4, borderWidth:1, borderColor:C.border2, borderRadius:5, paddingHorizontal:6, paddingVertical:2 },
+  lockPillText: { fontSize:10, color:C.muted, fontWeight:'600' },
 })

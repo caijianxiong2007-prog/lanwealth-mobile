@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView,
          Linking, Image, TextInput, Alert, Platform } from 'react-native'
+import { useRouter } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase }  from '../../lib/supabase'
 import { getSecret, removeSecret, setSecret } from '../../lib/secureSettings'
@@ -8,9 +9,12 @@ import { getSecret, removeSecret, setSecret } from '../../lib/secureSettings'
 const C = { bg:'#0A0A0B', bg2:'#111113', bg3:'#18181C', border:'#222228', border2:'#2C2C35', text:'#E4E4EA', muted:'#606070', dim:'#38383F', teal:'#1AEBA8', teal2:'#0F8C63', teal3:'#083D2B', red:'#E8453C' }
 
 export default function SettingsScreen() {
+  const router = useRouter()
   const [apiUrl,  setApiUrl]  = useState('')
   const [apiKey,  setApiKey]  = useState('')
   const [saved,   setSaved]   = useState(false)
+  const [guest,   setGuest]   = useState(false)
+  const [email,   setEmail]   = useState('')
   const showExternalLinks = Platform.OS !== 'ios'
 
   useEffect(() => {
@@ -20,6 +24,10 @@ export default function SettingsScreen() {
     ]).then(([url, key]) => {
       if (url) setApiUrl(url)
       if (key) setApiKey(key)
+    })
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setGuest(!!user?.is_anonymous)
+      setEmail(user?.email ?? '')
     })
   }, [])
 
@@ -41,7 +49,10 @@ export default function SettingsScreen() {
     ])
   }
 
-  async function signOut() { await supabase.auth.signOut() }
+  async function signOut() {
+    await supabase.auth.signOut()
+    router.replace('/(auth)/login')
+  }
 
   return (
     <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 50 }}>
@@ -129,11 +140,36 @@ export default function SettingsScreen() {
 
       {/* Account */}
       <Text style={s.section}>Account</Text>
-      <View style={s.card}>
-        <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={signOut} activeOpacity={.7}>
-          <Text style={[s.rowText, { color:C.red }]}>Sign out</Text>
-        </TouchableOpacity>
-      </View>
+      {guest ? (
+        <View style={s.card}>
+          <View style={{ padding:14, borderBottomWidth:1, borderBottomColor:C.border }}>
+            <Text style={[s.rowText, { fontWeight:'600' }]}>👤  Guest</Text>
+            <Text style={[s.hint, { marginTop:6 }]}>
+              You're using Bayze as a guest — chats are saved on this device only.
+              Sign in to sync across devices and top up credits.
+            </Text>
+          </View>
+          <TouchableOpacity style={s.row} onPress={() => router.push('/(auth)/login')} activeOpacity={.7}>
+            <Text style={[s.rowText, { color:C.teal }]}>Sign in</Text>
+            <Text style={{ color:C.muted, fontSize:13 }}>→</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => Linking.openURL('https://app.lanwealth.com/auth/signup')} activeOpacity={.7}>
+            <Text style={s.rowText}>Create a free account</Text>
+            <Text style={{ color:C.muted, fontSize:13 }}>↗</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={s.card}>
+          {email ? (
+            <View style={[s.row, { borderBottomWidth:1, borderBottomColor:C.border }]}>
+              <Text style={s.rowText}>📧  {email}</Text>
+            </View>
+          ) : null}
+          <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={signOut} activeOpacity={.7}>
+            <Text style={[s.rowText, { color:C.red }]}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
     </ScrollView>
   )

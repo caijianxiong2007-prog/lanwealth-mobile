@@ -38,3 +38,18 @@ export async function getSession() {
   const { data: { session } } = await supabase.auth.getSession()
   return session
 }
+
+// Guest mode: create an anonymous session so users can chat without registering
+// (App Store Guideline 5.1.1(v) — registration may not be required for features
+// that are not account-based). Requires "Anonymous sign-ins" enabled in the
+// Supabase dashboard. Returns the session, or throws if anonymous auth is off.
+export async function signInAsGuest() {
+  const { data, error } = await supabase.auth.signInAnonymously()
+  if (error) throw error
+  return data.session
+}
+
+export async function isGuest() {
+  const { data: { user } } = await supabase.auth.getUser()
+  return !!user?.is_anonymous
+}

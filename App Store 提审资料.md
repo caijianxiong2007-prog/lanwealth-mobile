@@ -60,9 +60,17 @@ https://app.lanwealth.com/download
 
 ### 审核备注
 
-Bayze AI is an AI chat application. Reviewers can sign in with the provided test account and send a short message in the chat screen.
+（针对上次 Guideline 5.1.1(v) 被拒的整改说明——可直接粘贴到 Resolution Center 回复 / App Review Notes）
 
-For the initial iOS release, the app does not provide external payment links or in-app credit purchases. Users can use the provided test account to evaluate chat, model selection, response language selection, local conversation history, and settings.
+Bayze AI is an AI chat application.
+
+In response to the previous rejection under Guideline 5.1.1(v): the app NO LONGER requires registration to use the AI chat. On launch the app opens directly into the chat as a guest (a Supabase anonymous session created automatically — no personal information requested), and a guest is given free trial credits so the chat is fully usable without any account. Registration / sign-in is now optional and only offered for account-based features (syncing chat history across devices and topping up credits).
+
+To verify: just launch the app and send a message in the chat — no login is required. (If you reach the sign-in screen, tap "Continue as guest".)
+
+A test account is also available if you prefer to review the signed-in experience (see below).
+
+For the initial iOS release, the app does not provide external payment links or in-app credit purchases. Account-based actions (top-up) are not shown on iOS.
 
 ### 测试账号
 
