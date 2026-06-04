@@ -1,0 +1,54 @@
+==============================================================
+ App Store Connect — Resolution Center 回复(Bayze AI, iOS 1.0)
+ 拒因:Guideline 5.1.1(v) - Legal - Privacy - Data Collection and Storage
+ Submission ID: 84d78ea3-dcb1-41f8-bdef-66fb71d25ec4
+==============================================================
+
+------------------- 英文(贴给审核员) -------------------
+
+Hello,
+
+Thank you for the feedback regarding Guideline 5.1.1(v).
+
+We have removed the registration requirement. In the new build, the app no
+longer requires users to register or log in to use the AI chat:
+
+• On launch, the app opens directly into the chat as a guest. A guest session
+  is created automatically with no personal information requested. Guests
+  receive free trial credits, so the chat is fully usable without any account.
+
+• To verify: simply launch the app and send a message in the chat — no login
+  is required. (If a sign-in screen ever appears, tap "Continue as guest".)
+
+• Registration / sign-in is now entirely OPTIONAL and is only offered for
+  account-based features: syncing chat history across devices, using premium
+  models, and topping up credits. Free models are available to guests; premium
+  models are shown as locked and prompt sign-in.
+
+This change is included in the new build we have submitted for review.
+
+A test account is also available if you would like to review the signed-in
+experience:
+  Email: apple-review@lanwealth.com
+  Password: Bayze-Review-2026
+
+Please let us know if any further information would be helpful. Thank you.
+
+Best regards,
+The Bayze AI Team
+
+------------------- 中文(你自己看,别贴) -------------------
+
+已按 5.1.1(v) 整改:去掉强制注册。新 build 里:
+• App 一打开直接以「游客」进入聊天,自动建匿名会话、不索取任何个人信息,
+  并给游客免费体验额度,所以无需任何账户即可正常聊天。
+• 验证方式:打开 App 直接发消息即可,无需登录;若看到登录页,点
+  「Continue as guest」。
+• 注册/登录现在完全可选,仅用于账户相关功能(跨设备同步历史、使用高级模型、
+  充值)。免费模型对游客开放;高级模型显示为锁定并引导登录。
+• 上述改动已包含在重新提交的新 build 中。
+• 仍提供审核测试账号 apple-review@lanwealth.com / Bayze-Review-2026 供查看
+  登录态体验。
+
+提示:这段回复在新 build 上传并提交审核「之后」,到该 submission 的
+Resolution Center 里发送(或直接随新 build 重新提交)。
