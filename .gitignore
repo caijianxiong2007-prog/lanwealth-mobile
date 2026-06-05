@@ -19,3 +19,6 @@ expo-env.d.ts
 # @end expo-cli
 
 store-screenshots/
+
+# Google Play service account key — NEVER commit
+google-play-key.json

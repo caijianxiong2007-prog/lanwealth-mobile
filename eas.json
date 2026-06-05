@@ -34,6 +34,11 @@
         "appleId": "1753901@qq.com",
         "ascAppId": "6774803277",
         "appleTeamId": "2473SV2X9M"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-play-key.json",
+        "track": "internal",
+        "releaseStatus": "draft"
       }
     }
   }
