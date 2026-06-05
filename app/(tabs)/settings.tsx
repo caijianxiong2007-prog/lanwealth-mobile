@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView,
          Linking, Image, TextInput, Alert, Platform } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, type Href } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase }  from '../../lib/supabase'
 import { getSecret, removeSecret, setSecret } from '../../lib/secureSettings'
@@ -52,6 +52,34 @@ export default function SettingsScreen() {
   async function signOut() {
     await supabase.auth.signOut()
     router.replace('/(auth)/login')
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'Delete account',
+      'This permanently deletes your account and all associated data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: deleteAccount },
+      ],
+    )
+  }
+
+  async function deleteAccount() {
+    const { data: { session } } = await supabase.auth.getSession()
+    const token = session?.access_token
+    if (!token) { Alert.alert('Error', 'Not signed in.'); return }
+    try {
+      const res = await fetch('https://app.lanwealth.com/api/account/delete', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      await supabase.auth.signOut()
+      router.replace('/(auth)/login')
+    } catch {
+      Alert.alert('Error', 'Could not delete account. Please email support@lanwealth.com.')
+    }
   }
 
   return (
@@ -146,16 +174,16 @@ export default function SettingsScreen() {
             <Text style={[s.rowText, { fontWeight:'600' }]}>👤  Guest</Text>
             <Text style={[s.hint, { marginTop:6 }]}>
               You're using Bayze as a guest — chats are saved on this device only.
-              Sign in to sync across devices and top up credits.
+              Sign in to save your chats across devices.
             </Text>
           </View>
           <TouchableOpacity style={s.row} onPress={() => router.push('/(auth)/login')} activeOpacity={.7}>
             <Text style={[s.rowText, { color:C.teal }]}>Sign in</Text>
             <Text style={{ color:C.muted, fontSize:13 }}>→</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => Linking.openURL('https://app.lanwealth.com/auth/signup')} activeOpacity={.7}>
+          <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => router.push('/(auth)/signup' as Href)} activeOpacity={.7}>
             <Text style={s.rowText}>Create a free account</Text>
-            <Text style={{ color:C.muted, fontSize:13 }}>↗</Text>
+            <Text style={{ color:C.muted, fontSize:13 }}>→</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -165,8 +193,12 @@ export default function SettingsScreen() {
               <Text style={s.rowText}>📧  {email}</Text>
             </View>
           ) : null}
-          <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={signOut} activeOpacity={.7}>
+          <TouchableOpacity style={s.row} onPress={signOut} activeOpacity={.7}>
             <Text style={[s.rowText, { color:C.red }]}>Sign out</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={confirmDeleteAccount} activeOpacity={.7}>
+            <Text style={[s.rowText, { color:C.red }]}>Delete account</Text>
+            <Text style={{ color:C.muted, fontSize:12 }}>Permanent</Text>
           </TouchableOpacity>
         </View>
       )}

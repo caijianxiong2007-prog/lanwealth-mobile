@@ -58,6 +58,11 @@ export default function ChatScreen() {
   const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
   const curLang  = CHAT_LANGS.find(l => l.code === responseLang) ?? CHAT_LANGS[0]
   const showExternalBilling = Platform.OS !== 'ios'
+  // iOS ships as a free-only build (no paid models / purchases shown → App Store
+  // Guideline 2.1(b)/3.1.1). On Android, premium models are available to signed-in
+  // users; guests get free models only.
+  const freeOnly      = Platform.OS === 'ios' || guest
+  const visibleModels = Platform.OS === 'ios' ? MODELS.filter(m => m.free) : MODELS
 
   // Load persisted state
   useEffect(() => {
@@ -76,15 +81,20 @@ export default function ChatScreen() {
     })
   }, [])
 
-  // Detect guest (anonymous) users — they may only use free models
+  // Detect guest (anonymous) users
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
-      const g = !!user?.is_anonymous
-      setGuest(g)
-      // If a guest somehow has a premium model selected, fall back to a free one
-      if (g) setModel(m => (MODELS.find(x => x.id === m)?.free ? m : (MODELS.find(x => x.free)?.id ?? m)))
+      setGuest(!!user?.is_anonymous)
     })
   }, [])
+
+  // Keep the selected model within the free set whenever restricted
+  // (always on iOS; for guests on Android) — e.g. after loading an old conversation.
+  useEffect(() => {
+    if (freeOnly && !(MODELS.find(x => x.id === model)?.free)) {
+      setModel(MODELS.find(x => x.free)?.id ?? model)
+    }
+  }, [freeOnly, model])
 
   // Pick a model from the sheet; guests can't select locked (premium) models
   function selectModel(m: typeof MODELS[number]) {
@@ -416,13 +426,13 @@ export default function ChatScreen() {
                 ✦ New model will read previous messages
               </Text>
             )}
-            {guest && (
+            {guest && Platform.OS !== 'ios' && (
               <Text style={{ fontSize: 11, color: C.muted, textAlign: 'center', marginBottom: 8 }}>
                 🔒 Premium models need an account — sign in to unlock all
               </Text>
             )}
             <ScrollView showsVerticalScrollIndicator={false}>
-              {MODELS.map(m => {
+              {visibleModels.map(m => {
                 const locked = guest && !m.free
                 return (
                 <TouchableOpacity
