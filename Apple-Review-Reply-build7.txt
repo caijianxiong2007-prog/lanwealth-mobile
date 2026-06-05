@@ -1,0 +1,66 @@
+==============================================================
+ Bayze AI (iOS 1.0) — 二次拒审整改回复(build 7)
+ 拒因:Guideline 4 (Design) + Guideline 2.1(b) (Information Needed)
+ 整改 build:1.0 (build 7)
+--------------------------------------------------------------
+ 渠道:App Store Connect → 该提交 → Resolution Center,贴【英文版】发送。
+ 顺序:先把 build 7 关联到 1.0 版本并重新提交,再发本回复。
+==============================================================
+
+------------------- 英文(贴进 Resolution Center 发送) -------------------
+
+Hello,
+
+Thank you for the detailed feedback. We have addressed both items in the new build (1.0, build 7).
+
+== Guideline 4 (Design) — in-app sign in / registration ==
+
+The app no longer sends users to the external web browser. Sign in, account
+registration, and password reset are now all handled natively inside the app:
+
+- Sign in: native email/password screen in the app.
+- Register: native "Create account" screen in the app (no browser).
+- Forgot password: native screen in the app that requests a reset email.
+
+In addition, as account creation is supported, the app now offers in-app
+account deletion: Settings → Account → "Delete account", which permanently
+deletes the user's account and associated data.
+
+(Note: an account is still optional — the app opens directly into the chat as a
+guest. Sign in is only needed to sync chat history across devices.)
+
+== Guideline 2.1(b) — business model / paid content ==
+
+To clarify: the iOS app contains no paid digital content, no subscriptions, and
+no purchases of any kind. It is a free AI chat app. Answers to your questions:
+
+1. Who are the users that will use the paid content in the app?
+   None. The iOS app has no paid content; all features in the app are free.
+
+2. Where can users purchase the content that can be accessed in the app?
+   Nowhere. The iOS app offers no purchases and shows no purchase links.
+
+3. What specific types of previously purchased content can a user access in the app?
+   None. The iOS app does not unlock or access any previously purchased content.
+
+4. What paid content, subscriptions, or features are unlocked within the app
+   that do not use In-App Purchase?
+   None. The iOS app provides only free AI models. There are no paid models,
+   credits, subscriptions, or premium features in the iOS app.
+
+5. Do users have to pay a fee to create an account?
+   No. Account creation is free, and an account is not required at all (guest
+   mode lets users chat immediately).
+
+If anything further would help, we're glad to provide it. Thank you for your time.
+
+Best regards,
+The Bayze AI Team
+
+------------------- 中文(自己看,别贴) -------------------
+
+两项都已在 build 7 整改:
+· Guideline 4:登录/注册/找回密码全部改为 App 内原生页面,不再跳浏览器;并新增
+  设置→账户→「删除账号」(满足"支持注册必须支持删号")。账号仍为可选(游客直接聊)。
+· Guideline 2.1(b):iOS 版为纯免费版,App 内无任何付费内容/订阅/购买。5 问统一回答:
+  无付费内容、无购买入口、不解锁站外购买内容、无非 IAP 付费功能、注册免费且非必需。
