@@ -2,7 +2,7 @@
  Bayze AI (iOS 1.0) — App Review Resubmission Reply
  Rejection: Guideline 4 (Design) + Guideline 2.1(b) (Information Needed)
  New build: 1.0.0 (build 10)
- Build status: to be uploaded with Xcode 26 / iOS 26 SDK
+ Build status: uploaded to App Store Connect with Xcode 26 / iOS 26 SDK
 --------------------------------------------------------------
  Usage:
  1. Wait until App Store Connect finishes processing build 10.
