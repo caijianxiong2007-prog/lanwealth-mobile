@@ -174,7 +174,7 @@ export default function SettingsScreen() {
             <Text style={[s.rowText, { fontWeight:'600' }]}>👤  Guest</Text>
             <Text style={[s.hint, { marginTop:6 }]}>
               You're using Bayze as a guest — chats are saved on this device only.
-              Sign in to save your chats across devices.
+              Sign in if you want to use an account.
             </Text>
           </View>
           <TouchableOpacity style={s.row} onPress={() => router.push('/(auth)/login')} activeOpacity={.7}>

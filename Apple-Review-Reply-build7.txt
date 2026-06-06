@@ -11,7 +11,7 @@
 
 Hello,
 
-Thank you for the detailed feedback. We have addressed both items in the new build (1.0, build 7).
+Thank you for the detailed feedback. We have addressed both items in the new build we have just submitted.
 
 == Guideline 4 (Design) — in-app sign in / registration ==
 

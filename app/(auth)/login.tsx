@@ -114,7 +114,7 @@ export default function LoginScreen() {
             {guestLoading ? 'Starting…' : 'Continue as guest →'}
           </Text>
         </TouchableOpacity>
-        <Text style={s.guestHint}>No account needed. Sign in later to save your chats across devices.</Text>
+        <Text style={s.guestHint}>No account needed. Sign in later if you want to use an account.</Text>
 
         <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginTop:20 }}>
           <Text style={s.hint}>No account?</Text>
