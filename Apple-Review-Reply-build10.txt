@@ -1,0 +1,153 @@
+==============================================================
+ Bayze AI (iOS 1.0) — App Review Resubmission Reply
+ Rejection: Guideline 4 (Design) + Guideline 2.1(b) (Information Needed)
+ New build: 1.0.0 (build 10)
+ Build status: to be uploaded with Xcode 26 / iOS 26 SDK
+--------------------------------------------------------------
+ Usage:
+ 1. Wait until App Store Connect finishes processing build 10.
+ 2. Attach build 10 to iOS version 1.0.
+ 3. In App Review Notes, paste the "App Review Notes" section.
+ 4. Resubmit the app for review.
+ 5. In Resolution Center, paste the "Resolution Center Reply" section.
+==============================================================
+
+
+==============================================================
+ App Review Notes
+==============================================================
+
+Bayze AI is an AI chat app for iOS.
+
+This resubmission uses build 10. Build 9 was uploaded successfully but was
+rejected during App Store Connect binary processing because it was built with
+the iOS 18.5 SDK. Build 10 is built with Xcode 26 / iOS 26 SDK.
+
+What changed in build 10:
+
+1. Sign in, account registration, and password reset are now handled inside the
+   iOS app with native screens. The app no longer opens the default web browser
+   for sign in or registration.
+
+2. Because the app supports account creation, it now also supports in-app account
+   deletion:
+   Settings -> Account -> Delete account
+
+3. Account creation remains optional. The app opens directly into chat as a
+   guest, so users can use the built-in iOS chat experience without registering.
+
+4. The iOS app contains no purchases, no subscriptions, no credit purchases, no
+   premium feature purchases, no pricing page, and no external purchase links or
+   calls to action.
+
+How to verify:
+
+- Launch the app.
+- The app should open directly into chat as a guest.
+- To test native sign in, go to Settings -> Account -> Sign in.
+- To test native registration, go to Settings -> Account -> Create a free account.
+- To test password reset, open the native Sign in screen and tap "Forgot password?"
+- To test account deletion after signing in, go to Settings -> Account -> Delete account.
+
+Optional test account:
+
+Email: apple-review@lanwealth.com
+Password: Bayze-Review-2026
+
+
+==============================================================
+ Resolution Center Reply
+==============================================================
+
+Hello,
+
+Thank you for your review and for the detailed feedback. We have addressed the
+issues in the new build (1.0.0, build 10).
+
+We understand that the previous review appears to have reviewed build 6. Build 7
+and build 8 did not reach App Store Connect because they failed during the EAS
+iOS build process. Build 9 was uploaded successfully, but App Store Connect later
+flagged it for ITMS-90725 because it was built with the iOS 18.5 SDK. Build 10
+is built with Xcode 26 / iOS 26 SDK.
+
+
+== Guideline 4 (Design) — in-app sign in and registration ==
+
+The app no longer sends users to the default web browser to sign in or register.
+Sign in, account registration, and password reset are now handled natively inside
+the iOS app:
+
+- Sign in: native email/password screen in the app.
+- Register: native "Create account" screen in the app.
+- Forgot password: native screen in the app that requests a reset email.
+
+In addition, because the app supports account creation, it now also provides
+in-app account deletion:
+
+Settings -> Account -> Delete account
+
+This permanently deletes the user's account and associated data.
+
+An account is still optional. The app opens directly into chat as a guest, and
+users can use the built-in iOS chat experience without creating an account.
+
+
+== Guideline 2.1(b) — business model / paid digital content ==
+
+To clarify the business model: the iOS app itself contains no paid digital
+content, no subscriptions, no credit purchases, no premium feature purchases,
+no pricing page, and no external purchase links or calls to action.
+
+Answers to your questions:
+
+1. Who are the users that will use the paid content in the app?
+
+None. The iOS app has no paid content.
+
+2. Where can users purchase the content that can be accessed in the app?
+
+Nowhere in the iOS app. The iOS app offers no purchases and shows no purchase
+links or calls to action.
+
+3. What specific types of previously purchased content can a user access in the app?
+
+None. The iOS app does not unlock or access previously purchased content.
+
+4. What paid content, subscriptions, or features are unlocked within the app
+   that do not use In-App Purchase?
+
+None. The iOS app provides only free built-in AI chat features. There are no paid
+models, credits, subscriptions, premium features, purchase buttons, pricing
+pages, or external purchase links in the iOS app.
+
+5. Do users have to pay a fee to create an account?
+
+No. Account creation is free, and an account is not required to use the app.
+Guest mode lets users chat immediately without registration.
+
+Please let us know if any further information would be helpful. Thank you for
+your time.
+
+Best regards,
+The Bayze AI Team
+
+
+==============================================================
+ 中文参考(不要贴给苹果)
+==============================================================
+
+这次回复的核心点:
+
+1. build 10 使用 Xcode 26 / iOS 26 SDK,用于解决 build 9 的 ITMS-90725。
+
+2. Guideline 4:
+   - 登录、注册、找回密码都已经改为 App 内原生页面。
+   - 不再打开默认浏览器。
+   - 已提供 App 内删除账号入口: Settings -> Account -> Delete account。
+   - 游客仍可直接进入聊天,注册不是强制的。
+
+3. Guideline 2.1(b):
+   - iOS App 内无付费数字内容。
+   - 无订阅、无 credits 购买、无高级功能购买。
+   - 无定价页、无外部购买链接、无购买 CTA。
+   - 账号创建免费,也不是使用 App 的必要条件。

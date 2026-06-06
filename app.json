@@ -34,7 +34,8 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/with-fmt-cxx17"
     ],
     "experiments": {
       "typedRoutes": true
