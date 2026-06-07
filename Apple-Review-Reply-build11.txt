@@ -1,0 +1,75 @@
+Hello,
+
+Thank you for your review and for identifying the Guideline 2.1(a) issue.
+
+We have reproduced and fixed the issue reported for build 10, where tapping
+"Sign in" or "Create a free account" from Settings could return the reviewer to
+the Chat page.
+
+Root cause:
+
+The app supports guest access so users can use the chat without being required
+to register. In build 10, the app created an anonymous guest session on launch.
+The root navigation logic incorrectly treated that anonymous guest session the
+same as a signed-in account session. As a result, when a guest user opened the
+native Sign in or Create account screen, the app immediately redirected back to
+the Chat tab.
+
+Fix:
+
+1. Anonymous guest sessions are no longer treated as signed-in account sessions
+   for auth-screen navigation.
+
+2. The native Sign in and Create a free account screens now remain visible when
+   opened from Settings -> Account.
+
+3. When a guest user taps "Sign in" or "Create a free account", the app first
+   clears the guest session and then opens the corresponding native auth screen.
+
+4. The same fix was also applied to the Sign in action shown from the model
+   selection prompt.
+
+How to verify:
+
+1. Launch the app. It opens into Chat as a guest.
+2. Open Settings -> Account.
+3. Tap "Sign in".
+4. The native Sign in screen remains open and the app does not redirect to Chat.
+5. Return to Settings -> Account.
+6. Tap "Create a free account".
+7. The native Create a free account screen remains open and the app does not
+   redirect to Chat.
+
+We also ran TypeScript validation after the fix:
+
+    npm exec tsc -- --noEmit
+
+The check passed with no TypeScript errors.
+
+Best regards,
+The Bayze AI Team
+
+
+中文操作参考:
+
+本次针对 Apple build 10 的 Guideline 2.1(a) 拒审进行修复。
+
+拒审原因:
+
+- 审核员在 Settings -> Account 点击 Sign in 或 Create a free account 后,
+  App 被带回 Chat 页面。
+
+根因:
+
+- build 10 启动时会自动创建 guest session。
+- 根布局错误地把 guest session 当作真实账号登录态。
+- 所以进入登录/注册页面后,被自动重定向回 Chat。
+
+修复:
+
+- auth 导航逻辑现在区分真实账号 session 和 anonymous guest session。
+- Settings 里的 Sign in / Create a free account 会先退出 guest session,
+  再打开原生登录/注册页。
+- 模型选择弹窗里的 Sign in 入口也同步修复。
+
+提交新 build 后,在 Resolution Center 回复 Apple 时可粘贴上面的英文内容。

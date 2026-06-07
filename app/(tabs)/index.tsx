@@ -88,6 +88,11 @@ export default function ChatScreen() {
     })
   }, [])
 
+  async function openAuth() {
+    if (guest) await supabase.auth.signOut()
+    router.push('/(auth)/login')
+  }
+
   // Keep the selected model within the free set whenever restricted
   // (always on iOS; for guests on Android) — e.g. after loading an old conversation.
   useEffect(() => {
@@ -104,7 +109,7 @@ export default function ChatScreen() {
         `${m.name} is available with an account. Free models are available to guests — sign in or create a free account to use all models.`,
         [
           { text: 'Not now', style: 'cancel' },
-          { text: 'Sign in', onPress: () => { setShowModels(false); router.push('/(auth)/login') } },
+          { text: 'Sign in', onPress: () => { setShowModels(false); void openAuth() } },
         ],
       )
       return

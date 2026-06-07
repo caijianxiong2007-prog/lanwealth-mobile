@@ -18,10 +18,13 @@ export default function RootLayout() {
       const session = await getSession()
       if (!mounted) return
 
-      // Already signed in (real account or guest) → go to app
+      // Already signed in with a real account → go to app.
+      // Anonymous guest sessions are allowed to open auth screens so Settings
+      // can show native Sign in / Create account flows instead of bouncing back
+      // to Chat.
       if (session) {
         setReady(true)
-        if (inAuth) router.replace('/(tabs)')
+        if (inAuth && !session.user.is_anonymous) router.replace('/(tabs)')
         return
       }
 
@@ -46,10 +49,11 @@ export default function RootLayout() {
     boot()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      // When a session appears while we're on the auth screen, enter the app.
+      // When a real account session appears while we're on the auth screen,
+      // enter the app. Keep anonymous guest sessions on auth screens.
       // We intentionally do NOT bounce to login on sign-out — boot()/Settings
       // re-establish a guest session instead, so users never hit a login wall.
-      if (session && inAuth) router.replace('/(tabs)')
+      if (session && inAuth && !session.user.is_anonymous) router.replace('/(tabs)')
     })
     return () => { mounted = false; subscription.unsubscribe() }
   }, [router, inAuth])

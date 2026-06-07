@@ -167,3 +167,69 @@ origin/main
 - premium models are locked
 
 这些旧说法会增加 Guideline 2.1(b) 被继续追问的风险。
+
+## 2026-06-07 新拒审: Guideline 2.1(a)
+
+Apple 对 build 10 的新回复:
+
+- Guideline 2.1(a) - Performance - App Completeness
+- Review device: iPad Air 11-inch (M3)
+- OS version: iPadOS 26.5
+- Bug description: reviewers were redirected to the Chat page after tapping `Sign in` or `Create a free account`.
+
+### 根因
+
+build 10 为了满足“不强制注册即可聊天”的要求,启动时会自动创建 Supabase anonymous guest session。
+
+但根布局 `app/_layout.tsx` 把所有 session 都当成“已登录”处理:
+
+- 当前在 auth 页面时,只要存在 session 就 `router.replace('/(tabs)')`
+- anonymous guest session 也触发了该逻辑
+- 因此从 Settings 点击 `Sign in` / `Create a free account` 后,auth 页面刚打开就被重定向回 Chat
+
+这就是 Apple 看到的 bug。
+
+### 修复
+
+1. `app/_layout.tsx`
+
+- 区分真实账号 session 和 anonymous guest session。
+- 只有非匿名真实账号 session 才会在 auth 页面自动回到 `(tabs)`。
+- anonymous guest session 可以停留在 `/(auth)/login` 或 `/(auth)/signup`。
+
+2. `app/(tabs)/settings.tsx`
+
+- Settings -> Account -> `Sign in`
+- Settings -> Account -> `Create a free account`
+
+点击以上两个入口时,如果当前是 guest session,先执行 `supabase.auth.signOut()`,再进入对应原生 auth 页面。
+
+3. `app/(tabs)/index.tsx`
+
+- 模型锁定弹窗里的 `Sign in` 入口也使用同样逻辑:
+  - 先退出 guest session
+  - 再进入 `/(auth)/login`
+
+### 验证
+
+本地 TypeScript 检查:
+
+```bash
+npm exec tsc -- --noEmit
+```
+
+结果:
+
+- 通过,无 TypeScript 错误。
+
+预期审核复测路径:
+
+1. 启动 App,自动进入 Chat guest 模式。
+2. 打开 Settings -> Account。
+3. 点击 `Sign in`。
+4. App 应停留在原生 Sign in 页面,不会跳回 Chat。
+5. 返回 Settings -> Account。
+6. 点击 `Create a free account`。
+7. App 应停留在原生 Create a free account 页面,不会跳回 Chat。
+
+后续需要重新构建并上传新的 iOS build,不能继续使用 build 10。

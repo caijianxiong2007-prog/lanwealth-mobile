@@ -54,6 +54,11 @@ export default function SettingsScreen() {
     router.replace('/(auth)/login')
   }
 
+  async function openAuth(path: Href) {
+    if (guest) await supabase.auth.signOut()
+    router.push(path)
+  }
+
   function confirmDeleteAccount() {
     Alert.alert(
       'Delete account',
@@ -177,11 +182,11 @@ export default function SettingsScreen() {
               Sign in if you want to use an account.
             </Text>
           </View>
-          <TouchableOpacity style={s.row} onPress={() => router.push('/(auth)/login')} activeOpacity={.7}>
+          <TouchableOpacity style={s.row} onPress={() => openAuth('/(auth)/login' as Href)} activeOpacity={.7}>
             <Text style={[s.rowText, { color:C.teal }]}>Sign in</Text>
             <Text style={{ color:C.muted, fontSize:13 }}>→</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => router.push('/(auth)/signup' as Href)} activeOpacity={.7}>
+          <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => openAuth('/(auth)/signup' as Href)} activeOpacity={.7}>
             <Text style={s.rowText}>Create a free account</Text>
             <Text style={{ color:C.muted, fontSize:13 }}>→</Text>
           </TouchableOpacity>
