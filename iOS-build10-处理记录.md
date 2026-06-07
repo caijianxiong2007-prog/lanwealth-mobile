@@ -233,3 +233,45 @@ npm exec tsc -- --noEmit
 7. App 应停留在原生 Create a free account 页面,不会跳回 Chat。
 
 后续需要重新构建并上传新的 iOS build,不能继续使用 build 10。
+
+### Build 11 构建与上传
+
+已基于修复提交重新触发 EAS iOS production build:
+
+```bash
+eas build --platform ios --profile production --non-interactive --wait
+```
+
+结果:
+
+- build number: 11
+- EAS build ID: `ca341255-81c7-44bc-a276-fa08f325eeab`
+- App version: `1.0.0`
+- Build date: 2026-06-07 20:23:15
+- IPA: `https://expo.dev/artifacts/eas/qYcvwc29p4ZxRA8x4911Lk.ipa`
+- status: FINISHED
+
+已上传到 App Store Connect:
+
+```bash
+eas submit --platform ios --profile production --latest --non-interactive
+```
+
+结果:
+
+- Submission ID: `0b36e89c-854d-4ada-9d5c-38f71302e1b3`
+- Build ID: `ca341255-81c7-44bc-a276-fa08f325eeab`
+- Build number: `11`
+- ASC App ID: `6774803277`
+- 上传成功,Apple 正在 processing。
+
+提交审核时应选择:
+
+- Version: `1.0.0`
+- Build: `11`
+
+Resolution Center 回复可使用:
+
+```text
+Apple-Review-Reply-build11.txt
+```
