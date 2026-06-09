@@ -53,6 +53,7 @@ const STT_LANG: Record<string, string> = {
 export default function ChatScreen() {
   const router = useRouter()
   const [guest,       setGuest]       = useState(false)   // anonymous user → free models only
+  const [entitled,    setEntitled]    = useState(false)   // paid on web / active paid plan → full models on iOS (Guideline 3.1.3)
   const [model,       setModel]       = useState('deepseek-v3')
   const [messages,    setMessages]    = useState<Message[]>([])
   const [input,       setInput]       = useState('')
@@ -77,11 +78,14 @@ export default function ChatScreen() {
   const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
   const curLang  = CHAT_LANGS.find(l => l.code === responseLang) ?? CHAT_LANGS[0]
   const showExternalBilling = Platform.OS !== 'ios'
-  // iOS ships as a free-only build (no paid models / purchases shown → App Store
-  // Guideline 2.1(b)/3.1.1). On Android, premium models are available to signed-in
-  // users; guests get free models only.
-  const freeOnly      = Platform.OS === 'ios' || guest
-  const visibleModels = Platform.OS === 'ios' ? MODELS.filter(m => m.free) : MODELS
+  // iOS shows NO purchase UI (no top-up / pricing / external billing links).
+  // Free/guest users get free models only. Users who purchased a plan or credits
+  // on the web (entitled) unlock the full model set on iOS — accessing a service
+  // they already paid for elsewhere (Guideline 3.1.3 Multiplatform). On Android,
+  // signed-in users get all models; guests get free only.
+  const iosRestricted = Platform.OS === 'ios' && !entitled
+  const freeOnly      = iosRestricted || guest
+  const visibleModels = iosRestricted ? MODELS.filter(m => m.free) : MODELS
 
   // Load persisted state
   useEffect(() => {
@@ -100,10 +104,25 @@ export default function ChatScreen() {
     })
   }, [])
 
-  // Detect guest (anonymous) users
+  // Detect guest (anonymous) users + paid entitlement.
+  // Entitlement = the user actually purchased on the web (net paid > 0) or has an
+  // active paid plan. Signup bonus credits do NOT count. Used only to decide which
+  // models to show on iOS — there is no purchase UI in the app (Guideline 3.1.3).
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setGuest(!!user?.is_anonymous)
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      const isAnon = !!user?.is_anonymous
+      setGuest(isAnon)
+      if (!user || isAnon) { setEntitled(false); return }
+      const { data: profile } = await supabase
+        .from('users')
+        .select('plan, plan_period_end, total_paid_usd, total_refunded_usd')
+        .eq('id', user.id)
+        .single() as { data: { plan: string | null; plan_period_end: string | null; total_paid_usd: number | null; total_refunded_usd: number | null } | null }
+      if (!profile) { setEntitled(false); return }
+      const netPaid    = (profile.total_paid_usd ?? 0) - (profile.total_refunded_usd ?? 0)
+      const activePlan = !!profile.plan && profile.plan !== 'free' &&
+        (!profile.plan_period_end || new Date(profile.plan_period_end) > new Date())
+      setEntitled(netPaid > 0 || activePlan)
     })
   }, [])
 
