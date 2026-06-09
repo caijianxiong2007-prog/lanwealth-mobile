@@ -1,20 +1,20 @@
 const APP_URL = 'https://app.lanwealth.com'
 
 export const MODELS = [
-  { id: 'deepseek-v3',      name: 'DeepSeek V3',      tag: 'Fast',      group: 'DeepSeek', free: true  },
-  { id: 'deepseek-r1',      name: 'DeepSeek R1',      tag: 'Reasoning', group: 'DeepSeek', free: false },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', tag: 'Fast',      group: 'Google',   free: true  },
-  { id: 'gemini-2.5-pro',   name: 'Gemini 2.5 Pro',   tag: 'Advanced',  group: 'Google',   free: false },
-  { id: 'claude-haiku-4-5',   name: 'Claude Haiku 4',   tag: 'Fast',      group: 'Claude',   free: false },
-  { id: 'claude-sonnet-4-5',  name: 'Claude Sonnet 4',  tag: 'Balanced',  group: 'Claude',   free: false },
-  { id: 'claude-opus-4-5',    name: 'Claude Opus 4',    tag: 'Advanced',  group: 'Claude',   free: false },
-  { id: 'gpt-4o-mini',      name: 'GPT-4o mini',      tag: 'Fast',      group: 'OpenAI',   free: false },
-  { id: 'gpt-4o',           name: 'GPT-4o',           tag: 'Balanced',  group: 'OpenAI',    free: false },
-  { id: 'doubao-seed-lite', name: 'Doubao Seed Lite', tag: 'Fast',      group: 'ByteDance', free: false },
-  { id: 'doubao-seed-pro',  name: 'Doubao Seed Pro',  tag: 'Balanced',  group: 'ByteDance', free: false },
-  { id: 'qwen-turbo',       name: 'Qwen Turbo',       tag: 'Fast',      group: 'Qwen',      free: true  },
-  { id: 'qwen-plus',        name: 'Qwen Plus',        tag: 'Balanced',  group: 'Qwen',      free: false },
-  { id: 'qwen3-235b',       name: 'Qwen3 235B',       tag: 'Advanced',  group: 'Qwen',      free: false },
+  { id: 'deepseek-v3',      name: 'DeepSeek V3',      tag: 'Fast',      group: 'DeepSeek', free: true,  vision: false },
+  { id: 'deepseek-r1',      name: 'DeepSeek R1',      tag: 'Reasoning', group: 'DeepSeek', free: false, vision: false },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', tag: 'Fast',      group: 'Google',   free: true,  vision: true  },
+  { id: 'gemini-2.5-pro',   name: 'Gemini 2.5 Pro',   tag: 'Advanced',  group: 'Google',   free: false, vision: true  },
+  { id: 'claude-haiku-4-5',   name: 'Claude Haiku 4',   tag: 'Fast',      group: 'Claude',   free: false, vision: true  },
+  { id: 'claude-sonnet-4-5',  name: 'Claude Sonnet 4',  tag: 'Balanced',  group: 'Claude',   free: false, vision: true  },
+  { id: 'claude-opus-4-5',    name: 'Claude Opus 4',    tag: 'Advanced',  group: 'Claude',   free: false, vision: true  },
+  { id: 'gpt-4o-mini',      name: 'GPT-4o mini',      tag: 'Fast',      group: 'OpenAI',   free: false, vision: true  },
+  { id: 'gpt-4o',           name: 'GPT-4o',           tag: 'Balanced',  group: 'OpenAI',    free: false, vision: true  },
+  { id: 'doubao-seed-lite', name: 'Doubao Seed Lite', tag: 'Fast',      group: 'ByteDance', free: false, vision: false },
+  { id: 'doubao-seed-pro',  name: 'Doubao Seed Pro',  tag: 'Balanced',  group: 'ByteDance', free: false, vision: false },
+  { id: 'qwen-turbo',       name: 'Qwen Turbo',       tag: 'Fast',      group: 'Qwen',      free: true,  vision: false },
+  { id: 'qwen-plus',        name: 'Qwen Plus',        tag: 'Balanced',  group: 'Qwen',      free: false, vision: false },
+  { id: 'qwen3-235b',       name: 'Qwen3 235B',       tag: 'Advanced',  group: 'Qwen',      free: false, vision: false },
 ]
 
 // Languages the AI can respond in (via system prompt injection)
@@ -33,7 +33,23 @@ export const CHAT_LANGS = [
   { code: 'ar', label: 'Arabic',      native: 'العربية'        },
 ]
 
-export type Message = { role: 'user' | 'assistant' | 'system'; content: string }
+// Multimodal message content (OpenAI-compatible), mirrors the web ChatClient format.
+export type ContentPart =
+  | { type: 'text';      text: string }
+  | { type: 'image_url'; image_url: { url: string } }   // url = data:image/...;base64,...
+
+export type Message = { role: 'user' | 'assistant' | 'system'; content: string | ContentPart[] }
+
+// Flatten a message's content to plain text (for titles, export, previews).
+export function messageText(content: string | ContentPart[]): string {
+  if (typeof content === 'string') return content
+  return content.filter(p => p.type === 'text').map(p => (p as { text: string }).text).join('\n')
+}
+
+export function contentImages(content: string | ContentPart[]): string[] {
+  if (typeof content === 'string') return []
+  return content.filter(p => p.type === 'image_url').map(p => (p as { image_url: { url: string } }).image_url.url)
+}
 
 interface ChatOptions {
   accessToken:   string

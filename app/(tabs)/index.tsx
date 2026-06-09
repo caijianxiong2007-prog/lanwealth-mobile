@@ -6,10 +6,18 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as ImagePicker    from 'expo-image-picker'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem     from 'expo-file-system'
 import { supabase }                  from '../../lib/supabase'
-import { streamChat, MODELS, CHAT_LANGS } from '../../lib/api'
-import type { Message }              from '../../lib/api'
+import { streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
+import type { Message, ContentPart } from '../../lib/api'
 import { getSecret }                 from '../../lib/secureSettings'
+
+// Chat input attachments (images go to vision models; text files are inlined)
+type Attachment =
+  | { kind: 'image'; uri: string; dataUrl: string }
+  | { kind: 'file';  name: string; text: string }
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
@@ -52,6 +60,8 @@ export default function ChatScreen() {
   const [showRename,    setShowRename]    = useState(false)
   const [renameInput,   setRenameInput]   = useState('')
   const [deleteLocked,  setDeleteLocked]  = useState(true)   // delete protection ON by default
+  const [attachments,   setAttachments]   = useState<Attachment[]>([])
+  const [showAttach,    setShowAttach]    = useState(false)
   const listRef    = useRef<FlatList>(null)
   const lockTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -118,16 +128,84 @@ export default function ChatScreen() {
     setShowModels(false)
   }
 
+  // ── Attachments (photo / camera / file) ──────────────────────────
+  // When an image is attached but the current model can't see images,
+  // auto-switch to the best available vision model (respects free-only).
+  function ensureVisionModel() {
+    if (curModel.vision) return
+    const v = visibleModels.find(m => m.vision)
+    if (v) setModel(v.id)
+  }
+
+  function addImage(asset: ImagePicker.ImagePickerAsset) {
+    const mime    = asset.mimeType ?? 'image/jpeg'
+    const dataUrl = asset.base64 ? `data:${mime};base64,${asset.base64}` : asset.uri
+    setAttachments(prev => [...prev, { kind: 'image', uri: asset.uri, dataUrl }])
+    ensureVisionModel()
+  }
+
+  async function pickPhoto() {
+    setShowAttach(false)
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, base64: true, quality: 0.6,
+    })
+    if (!res.canceled && res.assets[0]) addImage(res.assets[0])
+  }
+
+  async function takePhoto() {
+    setShowAttach(false)
+    const perm = await ImagePicker.requestCameraPermissionsAsync()
+    if (!perm.granted) { Alert.alert('Camera access needed', 'Enable camera access in Settings to take a photo.'); return }
+    const res = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.6 })
+    if (!res.canceled && res.assets[0]) addImage(res.assets[0])
+  }
+
+  async function pickFile() {
+    setShowAttach(false)
+    const res = await DocumentPicker.getDocumentAsync({
+      type: ['text/*', 'application/json', 'application/javascript', 'application/xml'],
+      copyToCacheDirectory: true,
+    })
+    if (res.canceled || !res.assets[0]) return
+    const f = res.assets[0]
+    try {
+      const text = await FileSystem.readAsStringAsync(f.uri)
+      if (text.length > 200_000) { Alert.alert('File too large', 'Please attach a text file under ~200 KB.'); return }
+      setAttachments(prev => [...prev, { kind: 'file', name: f.name, text }])
+    } catch {
+      Alert.alert('Could not read file', 'Only text/code files are supported for now.')
+    }
+  }
+
+  function removeAttachment(i: number) {
+    setAttachments(prev => prev.filter((_, idx) => idx !== i))
+  }
+
   const send = useCallback(async (text?: string) => {
-    const content = (text ?? input).trim()
-    if (!content || streaming) return
+    const trimmed = (text ?? input).trim()
+    if ((!trimmed && attachments.length === 0) || streaming) return
     setError(''); setInput(''); Keyboard.dismiss()
+
+    // Build content: plain string, or multimodal parts when attachments exist
+    let content: string | ContentPart[]
+    if (attachments.length > 0) {
+      const parts: ContentPart[] = []
+      for (const a of attachments) {
+        if (a.kind === 'image') parts.push({ type: 'image_url', image_url: { url: a.dataUrl } })
+        else parts.push({ type: 'text', text: `[File: ${a.name}]\n${a.text}` })
+      }
+      if (trimmed) parts.push({ type: 'text', text: trimmed })
+      content = parts
+    } else {
+      content = trimmed
+    }
+    const hadAttachments = attachments.length > 0
+    setAttachments([])
 
     // Auto-set conversation title from first user message
     if (messages.length === 0 && !convTitle) {
-      const autoTitle = content.slice(0, 40)
-      setConvTitle(autoTitle)
-      AsyncStorage.setItem('conv_title', autoTitle)
+      const autoTitle = (messageText(content) || (hadAttachments ? 'Image chat' : '')).slice(0, 40)
+      if (autoTitle) { setConvTitle(autoTitle); AsyncStorage.setItem('conv_title', autoTitle) }
     }
 
     const userMsg: Message     = { role: 'user', content }
@@ -150,7 +228,9 @@ export default function ChatScreen() {
       })) {
         setMessages(prev => {
           const updated = prev.map((m, i) =>
-            i === prev.length - 1 ? { ...m, content: m.content + delta } : m
+            i === prev.length - 1
+              ? { ...m, content: (typeof m.content === 'string' ? m.content : '') + delta }
+              : m
           )
           AsyncStorage.setItem('mobile_messages', JSON.stringify(updated.slice(-120)))
           return updated
@@ -161,7 +241,7 @@ export default function ChatScreen() {
       setError(err instanceof Error ? err.message : 'Error')
       setMessages(prev => prev.slice(0, -1))
     } finally { setStreaming(false) }
-  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle])
+  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle, attachments])
 
   function clearChat() {
     setMessages([])
@@ -186,7 +266,7 @@ export default function ChatScreen() {
   function exportConversation() {
     if (messages.length === 0) return
     const lines = messages.map(m =>
-      `${m.role === 'user' ? 'You' : 'AI'}: ${m.content}`
+      `${m.role === 'user' ? 'You' : 'AI'}: ${messageText(m.content)}${contentImages(m.content).length ? '  [📷 image]' : ''}`
     ).join('\n\n---\n\n')
     const content = `# ${convTitle || 'Bayze Chat'}\n\n${lines}`
     // Share via native share sheet
@@ -337,11 +417,16 @@ export default function ChatScreen() {
                 s.bubble,
                 msg.role === 'user' ? s.userBubble : s.asstBubble,
               ]}>
-                {msg.content
-                  ? <Text style={[s.msgText, msg.role === 'user' && s.userMsgText]} selectable>{msg.content}</Text>
-                  : <Text style={{ color: C.teal, fontSize: 16 }}>▌</Text>
+                {contentImages(msg.content).map((url, i) => (
+                  <Image key={i} source={{ uri: url }} style={s.msgImage} resizeMode="cover" />
+                ))}
+                {messageText(msg.content)
+                  ? <Text style={[s.msgText, msg.role === 'user' && s.userMsgText]} selectable>{messageText(msg.content)}</Text>
+                  : (typeof msg.content === 'string' && msg.content === ''
+                      ? <Text style={{ color: C.teal, fontSize: 16 }}>▌</Text>
+                      : null)
                 }
-                {msg.role === 'assistant' && streaming && index === messages.filter(m=>m.role!=='system').length - 1 && msg.content
+                {msg.role === 'assistant' && streaming && index === messages.filter(m=>m.role!=='system').length - 1 && messageText(msg.content)
                   ? <Text style={{ color: C.teal }}>▌</Text> : null
                 }
               </View>
@@ -361,8 +446,33 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
+      {/* ── Attachment previews ────────────────────────────────────────────── */}
+      {attachments.length > 0 && (
+        <ScrollView
+          horizontal showsHorizontalScrollIndicator={false}
+          style={s.attachPreviewRow} contentContainerStyle={{ gap: 8, paddingHorizontal: 12, alignItems: 'center' }}
+        >
+          {attachments.map((a, i) => (
+            <View key={i} style={s.attachChip}>
+              {a.kind === 'image'
+                ? <Image source={{ uri: a.uri }} style={s.attachThumb} resizeMode="cover" />
+                : <View style={s.attachFileChip}><Text style={s.attachFileName} numberOfLines={1}>📄 {a.name}</Text></View>}
+              <TouchableOpacity style={s.attachRemove} onPress={() => removeAttachment(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.attachRemoveText}>×</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </ScrollView>
+      )}
+
       {/* ── Input ──────────────────────────────────────────────────────────── */}
       <View style={s.inputRow}>
+        <TouchableOpacity
+          style={s.attachBtn} onPress={() => setShowAttach(true)}
+          disabled={streaming} activeOpacity={0.7}
+        >
+          <Text style={s.attachBtnText}>＋</Text>
+        </TouchableOpacity>
         <TextInput
           style={s.inputField}
           value={input} onChangeText={setInput}
@@ -372,9 +482,9 @@ export default function ChatScreen() {
           editable={!streaming}
         />
         <TouchableOpacity
-          style={[s.sendBtn, (!input.trim() || streaming) && s.sendBtnDisabled]}
+          style={[s.sendBtn, ((!input.trim() && attachments.length === 0) || streaming) && s.sendBtnDisabled]}
           onPress={() => send()}
-          disabled={!input.trim() || streaming}
+          disabled={(!input.trim() && attachments.length === 0) || streaming}
           activeOpacity={0.8}
         >
           {streaming
@@ -383,6 +493,28 @@ export default function ChatScreen() {
           }
         </TouchableOpacity>
       </View>
+
+      {/* ── Attach action sheet ────────────────────────────────────────────── */}
+      <Modal visible={showAttach} transparent animationType="slide" onRequestClose={() => setShowAttach(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setShowAttach(false)}>
+          <Pressable style={[s.sheet, { paddingBottom: 30 }]} onPress={e => e.stopPropagation()}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>Add to message</Text>
+            <TouchableOpacity style={s.attachAction} onPress={pickPhoto} activeOpacity={0.7}>
+              <Text style={s.attachActionIcon}>🖼️</Text>
+              <View><Text style={s.attachActionName}>Photo library</Text><Text style={s.sheetRowSub}>Attach an image to ask about it</Text></View>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.attachAction} onPress={takePhoto} activeOpacity={0.7}>
+              <Text style={s.attachActionIcon}>📷</Text>
+              <View><Text style={s.attachActionName}>Take photo</Text><Text style={s.sheetRowSub}>Use the camera</Text></View>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.attachAction, { borderBottomWidth: 0 }]} onPress={pickFile} activeOpacity={0.7}>
+              <Text style={s.attachActionIcon}>📄</Text>
+              <View><Text style={s.attachActionName}>File</Text><Text style={s.sheetRowSub}>Text / code files</Text></View>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── Rename Modal ──────────────────────────────────────────────────── */}
       <Modal visible={showRename} transparent animationType="fade" onRequestClose={() => setShowRename(false)}>
@@ -582,4 +714,23 @@ const s = StyleSheet.create({
   freePillText: { fontSize:10, color:C.teal, fontWeight:'600' },
   lockPill:     { backgroundColor:C.bg4, borderWidth:1, borderColor:C.border2, borderRadius:5, paddingHorizontal:6, paddingVertical:2 },
   lockPillText: { fontSize:10, color:C.muted, fontWeight:'600' },
+
+  // Message image (in-bubble thumbnail)
+  msgImage:     { width:200, height:200, borderRadius:10, marginBottom:6, backgroundColor:C.bg4 },
+
+  // Attachment previews (above input)
+  attachPreviewRow: { maxHeight:78, marginBottom:-4 },
+  attachChip:    { position:'relative' },
+  attachThumb:   { width:60, height:60, borderRadius:10, backgroundColor:C.bg4, borderWidth:1, borderColor:C.border2 },
+  attachFileChip:{ height:60, maxWidth:160, paddingHorizontal:12, borderRadius:10, backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center' },
+  attachFileName:{ fontSize:12, color:C.text },
+  attachRemove:  { position:'absolute', top:-6, right:-6, width:20, height:20, borderRadius:10, backgroundColor:'#000', borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center' },
+  attachRemoveText:{ color:'#fff', fontSize:14, fontWeight:'700', marginTop:-2 },
+
+  // Attach (+) button + action sheet
+  attachBtn:     { width:38, height:38, borderRadius:10, backgroundColor:C.bg4, borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center', flexShrink:0 },
+  attachBtnText: { color:C.teal, fontSize:22, fontWeight:'600', marginTop:-2 },
+  attachAction:  { flexDirection:'row', alignItems:'center', gap:14, paddingVertical:14, borderBottomWidth:1, borderBottomColor:C.border },
+  attachActionIcon: { fontSize:22, width:30, textAlign:'center' },
+  attachActionName: { fontSize:15, color:C.text, fontWeight:'500' },
 })

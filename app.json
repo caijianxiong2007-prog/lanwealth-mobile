@@ -35,7 +35,14 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "./plugins/with-fmt-cxx17"
+      "./plugins/with-fmt-cxx17",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Bayze to attach photos from your library to your chat.",
+          "cameraPermission": "Allow Bayze to take a photo to attach to your chat."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
