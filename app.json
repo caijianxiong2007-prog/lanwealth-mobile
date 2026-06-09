@@ -42,6 +42,13 @@
           "photosPermission": "Allow Bayze to attach photos from your library to your chat.",
           "cameraPermission": "Allow Bayze to take a photo to attach to your chat."
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Bayze to use the microphone for voice input.",
+          "speechRecognitionPermission": "Allow Bayze to recognize your speech so you can dictate messages."
+        }
       ]
     ],
     "experiments": {

@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as ImagePicker    from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem     from 'expo-file-system'
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { supabase }                  from '../../lib/supabase'
 import { streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
 import type { Message, ContentPart } from '../../lib/api'
@@ -43,6 +44,12 @@ const SUGGESTIONS = [
   'Draft a professional email',
 ]
 
+// Map chat response-language code → BCP-47 locale for speech recognition
+const STT_LANG: Record<string, string> = {
+  '': 'en-US', en: 'en-US', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', vi: 'vi-VN',
+  th: 'th-TH', ms: 'ms-MY', id: 'id-ID', es: 'es-ES', fr: 'fr-FR', ar: 'ar-SA',
+}
+
 export default function ChatScreen() {
   const router = useRouter()
   const [guest,       setGuest]       = useState(false)   // anonymous user → free models only
@@ -62,6 +69,8 @@ export default function ChatScreen() {
   const [deleteLocked,  setDeleteLocked]  = useState(true)   // delete protection ON by default
   const [attachments,   setAttachments]   = useState<Attachment[]>([])
   const [showAttach,    setShowAttach]    = useState(false)
+  const [listening,     setListening]     = useState(false)   // voice input active
+  const voiceBaseRef = useRef('')          // input text captured when voice started
   const listRef    = useRef<FlatList>(null)
   const lockTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -101,6 +110,42 @@ export default function ChatScreen() {
   async function openAuth() {
     if (guest) await supabase.auth.signOut()
     router.push('/(auth)/login')
+  }
+
+  // ── Voice input (on-device speech-to-text) ───────────────────────
+  useSpeechRecognitionEvent('result', (e) => {
+    const t = e.results?.[0]?.transcript ?? ''
+    const base = voiceBaseRef.current
+    setInput((base ? base + ' ' : '') + t)
+  })
+  useSpeechRecognitionEvent('end', () => setListening(false))
+  useSpeechRecognitionEvent('error', (e) => {
+    setListening(false)
+    if (e.error && e.error !== 'no-speech' && e.error !== 'aborted') {
+      setError(`Voice input: ${e.message || e.error}`)
+    }
+  })
+
+  async function toggleVoice() {
+    if (listening) { try { ExpoSpeechRecognitionModule.stop() } catch {} setListening(false); return }
+    const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync()
+    if (!perm.granted) {
+      Alert.alert('Microphone access needed', 'Enable microphone & speech recognition in Settings to dictate messages.')
+      return
+    }
+    voiceBaseRef.current = input.trim()
+    setError('')
+    setListening(true)
+    try {
+      ExpoSpeechRecognitionModule.start({
+        lang: STT_LANG[responseLang] ?? 'en-US',
+        interimResults: true,
+        continuous: false,
+      })
+    } catch {
+      setListening(false)
+      setError('Voice input is unavailable on this device.')
+    }
   }
 
   // Keep the selected model within the free set whenever restricted
@@ -185,6 +230,7 @@ export default function ChatScreen() {
     const trimmed = (text ?? input).trim()
     if ((!trimmed && attachments.length === 0) || streaming) return
     setError(''); setInput(''); Keyboard.dismiss()
+    try { ExpoSpeechRecognitionModule.stop() } catch {} setListening(false)
 
     // Build content: plain string, or multimodal parts when attachments exist
     let content: string | ContentPart[]
@@ -477,10 +523,18 @@ export default function ChatScreen() {
           style={s.inputField}
           value={input} onChangeText={setInput}
           multiline
-          placeholder={`Message ${curModel.name}…`}
+          placeholder={listening ? 'Listening…' : `Message ${curModel.name}…`}
           placeholderTextColor={C.dim}
           editable={!streaming}
         />
+        <TouchableOpacity
+          style={[s.attachBtn, listening && { backgroundColor: C.red, borderColor: C.red }]}
+          onPress={toggleVoice} disabled={streaming} activeOpacity={0.7}
+        >
+          <Text style={[s.attachBtnText, { fontSize: listening ? 16 : 17 }, listening && { color: '#fff' }]}>
+            {listening ? '■' : '🎤'}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[s.sendBtn, ((!input.trim() && attachments.length === 0) || streaming) && s.sendBtnDisabled]}
           onPress={() => send()}
