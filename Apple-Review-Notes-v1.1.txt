@@ -1,0 +1,64 @@
+==============================================================
+ Bayze AI — v1.1 (1.1.0) App Review Notes
+ 用途:1.1.0 提交 App 审核时填入「App Review Information → Notes」
+       /或被问及时在 Resolution Center 回复(英文)
+--------------------------------------------------------------
+ 重点:① 新增图片/拍照/文件/语音输入(媒体功能,需相机/相册/麦克风权限)
+      ② 登录的付费用户解锁全部模型 = 多平台访问已购服务(Guideline 3.1.3),
+         App 内无任何购买入口/价格/外链,不涉 IAP
+ ⚠️ 提审前请确保测试账号 apple-review@lanwealth.com 处于「有效付费套餐」状态
+    (否则审核员只会看到免费模型,无法体现多平台解锁;可由管理员给该号
+     设置 active 付费 plan + plan_period_end,或让其在网页实付一次)
+==============================================================
+
+------------------- 英文(贴进 Review Notes / Resolution Center) -------------------
+
+Hello,
+
+This is a feature update for Bayze AI. Two notes for your review:
+
+1) New input options
+The chat now supports attaching a photo from the library, taking a photo with
+the camera, attaching a text/code file, and dictating a message by voice. These
+use the standard camera, photo library, microphone, and speech-recognition
+permissions, each with an in-context usage description. No content is uploaded
+until the user sends a message.
+
+2) Business model — no in-app purchases (Multiplatform, Guideline 3.1.3)
+The app still contains NO purchases, NO prices, and NO links to any external
+purchase. It sells nothing.
+
+Users can use the app for free, including as a guest with no account (the app
+opens directly into the chat). A free or guest user has access to the free
+models only.
+
+Separately, customers who have purchased a plan on our website can sign in and
+access the additional models included in the plan they already bought — this is
+access to a service they purchased on another platform (our website), consistent
+with Guideline 3.1.3 (Multiplatform Services). The app never offers to sell
+these plans, shows no pricing, and contains no purchase or "upgrade" links.
+
+How to verify:
+- Free/guest: launch the app and chat — only free models are listed.
+- Purchased account: sign in with the test account below; the full model list is
+  available because this account already holds a plan purchased on the web. No
+  purchase UI appears anywhere in the app.
+
+Test account (holds an active plan purchased on the web):
+  Email: apple-review@lanwealth.com
+  Password: Bayze-Review-2026
+
+We're happy to provide any further detail about the multiplatform model. Thank
+you for your review.
+
+Best regards,
+The Bayze AI Team
+
+------------------- 中文(自看) -------------------
+- 新增:相册图片/拍照/文件/语音输入,均有权限文案,发送前不上传。
+- 业务模型:App 内仍零购买/零价格/零外链。免费+游客=免费模型;在官网买过
+  套餐的用户登录后访问其已购套餐含的模型(3.1.3 多平台访问已购服务),App
+  从不售卖、无价格、无购买/升级链接。
+- 验证:游客只看到免费模型;测试账号(已持网页购买的套餐)登录后全模型可用,
+  全程无购买界面。
+- ⚠️ 提审前务必让 apple-review@lanwealth.com 处于有效付费套餐状态。
