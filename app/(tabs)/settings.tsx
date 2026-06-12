@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView,
          Linking, Image, TextInput, Alert, Platform } from 'react-native'
 import { useRouter, type Href } from 'expo-router'
+import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase }  from '../../lib/supabase'
 import { getSecret, removeSecret, setSecret } from '../../lib/secureSettings'
@@ -100,7 +101,7 @@ export default function SettingsScreen() {
             <Text style={s.brandName}>Bayze</Text>
             <Text style={s.brandZh}>白泽</Text>
           </View>
-          <Text style={s.brandSub}>AI Chat · v1.0.0</Text>
+          <Text style={s.brandSub}>AI Chat · v{Constants.expoConfig?.version ?? '1.1.0'}</Text>
         </View>
       </View>
 
