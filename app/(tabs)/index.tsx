@@ -11,7 +11,7 @@ import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem     from 'expo-file-system'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { supabase }                  from '../../lib/supabase'
-import { streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
+import { APP_URL, streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
 import type { Message, ContentPart } from '../../lib/api'
 import { getSecret }                 from '../../lib/secureSettings'
 
@@ -19,6 +19,43 @@ import { getSecret }                 from '../../lib/secureSettings'
 type Attachment =
   | { kind: 'image'; uri: string; dataUrl: string }
   | { kind: 'file';  name: string; text: string }
+
+const TEXT_FILE_EXTS = new Set([
+  'txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'jsonl', 'xml', 'yaml', 'yml',
+  'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'html', 'css', 'scss', 'py', 'java',
+  'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt', 'sql',
+  'sh', 'bash', 'zsh', 'env', 'log',
+])
+const DOC_FILE_EXTS = new Set(['pdf', 'docx', 'xlsx', 'xls'])
+const MAX_INLINE_TEXT_CHARS = 200_000
+const MAX_DOC_BYTES = 25 * 1024 * 1024
+
+function extOf(nameOrUri?: string | null): string {
+  const clean = (nameOrUri ?? '').split('?')[0].split('#')[0]
+  const last = clean.split('/').pop() ?? clean
+  const dot = last.lastIndexOf('.')
+  return dot >= 0 ? last.slice(dot + 1).toLowerCase() : ''
+}
+
+function imageMime(asset: ImagePicker.ImagePickerAsset): string {
+  if (asset.mimeType) return asset.mimeType
+  const ext = extOf(asset.fileName ?? asset.uri)
+  if (ext === 'png') return 'image/png'
+  if (ext === 'webp') return 'image/webp'
+  if (ext === 'heic' || ext === 'heif') return 'image/heic'
+  return 'image/jpeg'
+}
+
+function isTextLikeFile(asset: DocumentPicker.DocumentPickerAsset): boolean {
+  const mime = (asset.mimeType ?? '').toLowerCase()
+  if (mime.startsWith('text/')) return true
+  if (['application/json', 'application/xml', 'application/javascript', 'application/x-javascript'].includes(mime)) return true
+  return TEXT_FILE_EXTS.has(extOf(asset.name || asset.uri))
+}
+
+function isDocFile(asset: DocumentPicker.DocumentPickerAsset): boolean {
+  return DOC_FILE_EXTS.has(extOf(asset.name || asset.uri))
+}
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
@@ -201,43 +238,98 @@ export default function ChatScreen() {
     if (v) setModel(v.id)
   }
 
-  function addImage(asset: ImagePicker.ImagePickerAsset) {
-    const mime    = asset.mimeType ?? 'image/jpeg'
-    const dataUrl = asset.base64 ? `data:${mime};base64,${asset.base64}` : asset.uri
-    setAttachments(prev => [...prev, { kind: 'image', uri: asset.uri, dataUrl }])
+  async function addImage(asset: ImagePicker.ImagePickerAsset) {
+    const mime = imageMime(asset)
+    let base64 = asset.base64 ?? ''
+    if (!base64 && asset.uri) {
+      try {
+        base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 })
+      } catch { /* handled below */ }
+    }
+    if (!base64) {
+      Alert.alert('Could not attach image', 'Please choose a local photo or take a new picture.')
+      return
+    }
+    const dataUrl = `data:${mime};base64,${base64}`
+    setAttachments(prev => [...prev, { kind: 'image', uri: asset.uri || dataUrl, dataUrl }])
     ensureVisionModel()
   }
 
   async function pickPhoto() {
     setShowAttach(false)
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (!perm.granted) {
+      Alert.alert('Photo access needed', 'Enable photo access in Settings to attach an image.')
+      return
+    }
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, base64: true, quality: 0.6,
+      mediaTypes: ['images'], base64: true, quality: 0.6,
     })
-    if (!res.canceled && res.assets[0]) addImage(res.assets[0])
+    if (!res.canceled && res.assets[0]) await addImage(res.assets[0])
   }
 
   async function takePhoto() {
     setShowAttach(false)
     const perm = await ImagePicker.requestCameraPermissionsAsync()
     if (!perm.granted) { Alert.alert('Camera access needed', 'Enable camera access in Settings to take a photo.'); return }
-    const res = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.6 })
-    if (!res.canceled && res.assets[0]) addImage(res.assets[0])
+    const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], base64: true, quality: 0.6 })
+    if (!res.canceled && res.assets[0]) await addImage(res.assets[0])
+  }
+
+  async function extractDocumentText(f: DocumentPicker.DocumentPickerAsset, accessToken: string): Promise<string> {
+    const fd = new FormData()
+    fd.append('file', {
+      uri:  f.uri,
+      name: f.name,
+      type: f.mimeType ?? 'application/octet-stream',
+    } as unknown as Blob)
+    fd.append('name', f.name)
+
+    const res = await fetch(`${APP_URL}/api/extract`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: fd,
+    })
+    const json = await res.json().catch(() => ({})) as { text?: string; error?: string; truncated?: boolean }
+    if (!res.ok) throw new Error(json.error ?? `Could not read file (${res.status})`)
+    const text = String(json.text ?? '').trim()
+    if (!text) throw new Error('No extractable text found in the file.')
+    return json.truncated ? `${text}\n\n[Document was truncated to fit the chat context.]` : text
   }
 
   async function pickFile() {
     setShowAttach(false)
     const res = await DocumentPicker.getDocumentAsync({
-      type: ['text/*', 'application/json', 'application/javascript', 'application/xml'],
+      // iOS MIME/UTI mapping can hide valid text files when this is too narrow.
+      // Let the picker show files, then validate and read only text/code locally.
+      type: '*/*',
       copyToCacheDirectory: true,
     })
     if (res.canceled || !res.assets[0]) return
     const f = res.assets[0]
+    const isDoc = isDocFile(f)
+    if ((f.size ?? 0) > (isDoc ? MAX_DOC_BYTES : MAX_INLINE_TEXT_CHARS)) {
+      Alert.alert('File too large', isDoc ? 'Please attach a document under 25 MB.' : 'Please attach a text or code file under ~200 KB.')
+      return
+    }
+    if (!isDoc && !isTextLikeFile(f)) {
+      Alert.alert('Unsupported file', 'Bayze can read PDF, Word, Excel, CSV, Markdown, JSON, XML and code/text files.')
+      return
+    }
     try {
-      const text = await FileSystem.readAsStringAsync(f.uri)
-      if (text.length > 200_000) { Alert.alert('File too large', 'Please attach a text file under ~200 KB.'); return }
+      let text = ''
+      if (isDoc) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) { Alert.alert('Sign in required', 'Please sign in before attaching documents.'); return }
+        text = await extractDocumentText(f, session.access_token)
+      } else {
+        text = await FileSystem.readAsStringAsync(f.uri, { encoding: FileSystem.EncodingType.UTF8 })
+      }
+      if (text.length > MAX_INLINE_TEXT_CHARS) text = `${text.slice(0, MAX_INLINE_TEXT_CHARS)}\n\n[File was truncated to fit the chat context.]`
+      if (!text.trim()) { Alert.alert('Empty file', 'This file does not contain readable text.'); return }
       setAttachments(prev => [...prev, { kind: 'file', name: f.name, text }])
-    } catch {
-      Alert.alert('Could not read file', 'Only text/code files are supported for now.')
+    } catch (err) {
+      Alert.alert('Could not read file', err instanceof Error ? err.message : 'Please try another file.')
     }
   }
 

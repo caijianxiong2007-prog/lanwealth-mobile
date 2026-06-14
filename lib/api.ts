@@ -1,4 +1,4 @@
-const APP_URL = 'https://app.lanwealth.com'
+export const APP_URL = 'https://app.lanwealth.com'
 
 export const MODELS = [
   { id: 'deepseek-v3',      name: 'DeepSeek V3',      tag: 'Fast',      group: 'DeepSeek', free: true,  vision: false },
