@@ -1,7 +1,8 @@
-import { useState }         from 'react'
+import { useState, useEffect } from 'react'
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
          KeyboardAvoidingView, Platform, Image } from 'react-native'
 import { useRouter, type Href } from 'expo-router'
+import AsyncStorage          from '@react-native-async-storage/async-storage'
 import { supabase, signInAsGuest } from '../../lib/supabase'
 
 // New routes (signup/forgot) — typed-routes cache regenerates on dev/EAS build
@@ -17,13 +18,30 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false)
   const [guestLoading, setGuestLoading] = useState(false)
   const [error,   setError]   = useState('')
+  const [remember, setRemember] = useState(true)
+
+  // 记住账号:预填上次登录邮箱(只记标识,不存密码)
+  useEffect(() => {
+    (async () => {
+      try {
+        const on = (await AsyncStorage.getItem('lw_remember')) !== '0'   // 默认开
+        setRemember(on)
+        if (on) { const e = await AsyncStorage.getItem('lw_acct_email'); if (e) setEmail(e) }
+      } catch { /* ignore */ }
+    })()
+  }, [])
 
   async function signIn() {
     if (!email || !pass) return
     setLoading(true); setError('')
     const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass })
     setLoading(false)
-    if (err) setError(err.message)
+    if (err) { setError(err.message); return }
+    try {
+      await AsyncStorage.setItem('lw_remember', remember ? '1' : '0')
+      if (remember) await AsyncStorage.setItem('lw_acct_email', email.trim())
+      else await AsyncStorage.removeItem('lw_acct_email')
+    } catch { /* ignore */ }
   }
 
   async function continueAsGuest() {
@@ -86,6 +104,14 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* 记住账号(只记邮箱,不存密码) */}
+          <TouchableOpacity style={s.rememberRow} onPress={() => setRemember(v => !v)} activeOpacity={.7}>
+            <View style={[s.checkbox, remember && s.checkboxOn]}>
+              {remember ? <Text style={s.checkmark}>✓</Text> : null}
+            </View>
+            <Text style={s.rememberText}>Remember account</Text>
+          </TouchableOpacity>
+
           {error ? (
             <View style={s.errBox}><Text style={s.errText}>{error}</Text></View>
           ) : null}
@@ -144,6 +170,11 @@ const s = StyleSheet.create({
   errText:     { color:C.red, fontSize:13 },
   btn:         { marginTop:18, backgroundColor:C.teal, borderRadius:8, padding:13, alignItems:'center' },
   btnText:     { color:'#050505', fontWeight:'700', fontSize:15 },
+  rememberRow: { flexDirection:'row', alignItems:'center', gap:8, marginTop:14 },
+  checkbox:    { width:18, height:18, borderRadius:4, borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center' },
+  checkboxOn:  { backgroundColor:C.teal, borderColor:C.teal },
+  checkmark:   { color:'#050505', fontSize:12, fontWeight:'800', lineHeight:14 },
+  rememberText:{ fontSize:13, color:C.muted },
   hint:        { marginTop:20, fontSize:12, color:C.muted },
   forgotLink:  { fontSize:12, color:C.teal, opacity:.85 },
 
