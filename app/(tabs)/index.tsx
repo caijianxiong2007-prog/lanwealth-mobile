@@ -91,7 +91,7 @@ export default function ChatScreen() {
   const router = useRouter()
   const [guest,       setGuest]       = useState(false)   // anonymous user → free models only
   const [entitled,    setEntitled]    = useState(false)   // paid on web / active paid plan → full models on iOS (Guideline 3.1.3)
-  const [model,       setModel]       = useState('deepseek-v3')
+  const [model,       setModel]       = useState('deepseek-v4-flash')
   const [messages,    setMessages]    = useState<Message[]>([])
   const [input,       setInput]       = useState('')
   const [streaming,   setStreaming]   = useState(false)

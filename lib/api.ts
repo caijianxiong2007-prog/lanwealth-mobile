@@ -1,20 +1,22 @@
 export const APP_URL = 'https://app.lanwealth.com'
 
+// Mirrors the web ChatClient working set (ids must match gateway aliases on app.lanwealth.com).
+// Gemini stays on 2.5 Flash until Google billing is enabled (free tier excludes 3.x). GLM-4.7 via 火山方舟.
 export const MODELS = [
-  { id: 'deepseek-v3',      name: 'DeepSeek V3',      tag: 'Fast',      group: 'DeepSeek', free: true,  vision: false },
-  { id: 'deepseek-r1',      name: 'DeepSeek R1',      tag: 'Reasoning', group: 'DeepSeek', free: false, vision: false },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', tag: 'Fast',      group: 'Google',   free: true,  vision: true  },
-  { id: 'gemini-2.5-pro',   name: 'Gemini 2.5 Pro',   tag: 'Advanced',  group: 'Google',   free: false, vision: true  },
-  { id: 'claude-haiku-4-5',   name: 'Claude Haiku 4',   tag: 'Fast',      group: 'Claude',   free: false, vision: true  },
-  { id: 'claude-sonnet-4-5',  name: 'Claude Sonnet 4',  tag: 'Balanced',  group: 'Claude',   free: false, vision: true  },
-  { id: 'claude-opus-4-5',    name: 'Claude Opus 4',    tag: 'Advanced',  group: 'Claude',   free: false, vision: true  },
-  { id: 'gpt-4o-mini',      name: 'GPT-4o mini',      tag: 'Fast',      group: 'OpenAI',   free: false, vision: true  },
-  { id: 'gpt-4o',           name: 'GPT-4o',           tag: 'Balanced',  group: 'OpenAI',    free: false, vision: true  },
-  { id: 'doubao-seed-lite', name: 'Doubao Seed Lite', tag: 'Fast',      group: 'ByteDance', free: false, vision: false },
-  { id: 'doubao-seed-pro',  name: 'Doubao Seed Pro',  tag: 'Balanced',  group: 'ByteDance', free: false, vision: false },
-  { id: 'qwen-turbo',       name: 'Qwen Turbo',       tag: 'Fast',      group: 'Qwen',      free: true,  vision: false },
-  { id: 'qwen-plus',        name: 'Qwen Plus',        tag: 'Balanced',  group: 'Qwen',      free: false, vision: false },
-  { id: 'qwen3-235b',       name: 'Qwen3 235B',       tag: 'Advanced',  group: 'Qwen',      free: false, vision: false },
+  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', tag: 'Fast',      group: 'DeepSeek',  free: true,  vision: false },
+  { id: 'deepseek-v4-pro',   name: 'DeepSeek V4 Pro',   tag: 'Reasoning', group: 'DeepSeek',  free: false, vision: false },
+  { id: 'gemini-2.5-flash',  name: 'Gemini 2.5 Flash',  tag: 'Fast',      group: 'Google',    free: true,  vision: true  },
+  { id: 'claude-haiku-4-5',  name: 'Claude Haiku 4.5',  tag: 'Fast',      group: 'Claude',    free: false, vision: true  },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', tag: 'Balanced',  group: 'Claude',    free: false, vision: true  },
+  { id: 'claude-opus-4-8',   name: 'Claude Opus 4.8',   tag: 'Advanced',  group: 'Claude',    free: false, vision: true  },
+  { id: 'gpt-5.4-mini',      name: 'GPT-5.4 mini',      tag: 'Fast',      group: 'OpenAI',    free: false, vision: true  },
+  { id: 'gpt-5.4',           name: 'GPT-5.4',           tag: 'Balanced',  group: 'OpenAI',    free: false, vision: true  },
+  { id: 'doubao-seed-lite',  name: 'Doubao 2.0 Lite',   tag: 'Fast',      group: 'ByteDance', free: false, vision: false },
+  { id: 'doubao-seed-pro',   name: 'Doubao 2.0 Pro',    tag: 'Balanced',  group: 'ByteDance', free: false, vision: false },
+  { id: 'qwen-turbo',        name: 'Qwen Turbo',        tag: 'Fast',      group: 'Qwen',      free: true,  vision: false },
+  { id: 'qwen-plus',         name: 'Qwen Plus',         tag: 'Balanced',  group: 'Qwen',      free: false, vision: false },
+  { id: 'qwen3-235b',        name: 'Qwen3 235B',        tag: 'Advanced',  group: 'Qwen',      free: false, vision: false },
+  { id: 'glm-4.7',           name: 'GLM-4.7',           tag: 'Advanced',  group: 'Zhipu',     free: false, vision: false },
 ]
 
 // Languages the AI can respond in (via system prompt injection)
