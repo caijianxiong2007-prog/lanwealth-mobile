@@ -37,6 +37,34 @@
       "expo-secure-store",
       "./plugins/with-fmt-cxx17",
       [
+        "expo-share-intent",
+        {
+          "iosShareExtensionName": "Bayze Share",
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
+            "NSExtensionActivationSupportsImageWithMaxCount": 5,
+            "NSExtensionActivationSupportsFileWithMaxCount": 1
+          },
+          "androidIntentFilters": [
+            "text/*",
+            "image/*",
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/json",
+            "application/xml",
+            "application/octet-stream"
+          ],
+          "androidMultiIntentFilters": [
+            "image/*"
+          ]
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Allow Bayze to attach photos from your library to your chat.",

@@ -102,13 +102,15 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
 
   let seen = 0
   let buf  = ''
-  xhr.onprogress = () => {
+  const consumeResponse = (flush = false) => {
     buf += xhr.responseText.slice(seen)
     seen = xhr.responseText.length
-    const lines = buf.split('\n'); buf = lines.pop() ?? ''
+    const lines = buf.split('\n')
+    buf = flush ? '' : (lines.pop() ?? '')
     for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const payload = line.slice(6)
+      const normalized = line.trimEnd()
+      if (!normalized.startsWith('data: ')) continue
+      const payload = normalized.slice(6)
       if (payload === '[DONE]') continue
       try {
         const delta = (JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content
@@ -117,11 +119,14 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
     }
     bump()
   }
+  xhr.onprogress = () => consumeResponse()
   xhr.onload = () => {
     if (xhr.status >= 400) {
       let msg = `HTTP ${xhr.status}`
       try { msg = (JSON.parse(xhr.responseText) as { error?: string }).error ?? msg } catch {}
       failed = new Error(msg)
+    } else {
+      consumeResponse(true)
     }
     finished = true; bump()
   }

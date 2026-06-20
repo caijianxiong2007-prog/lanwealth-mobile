@@ -6,14 +6,21 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import Ionicons from '@expo/vector-icons/Ionicons'
 import * as ImagePicker    from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem     from 'expo-file-system'
+import { useShareIntentContext } from 'expo-share-intent'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { supabase }                  from '../../lib/supabase'
 import { APP_URL, streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
 import type { Message, ContentPart } from '../../lib/api'
 import { getSecret }                 from '../../lib/secureSettings'
+import {
+  createConversationId, deleteCloudConversation, fetchCloudConversations,
+  loadLocalConversations, mergeConversations, saveCloudConversation, saveCloudConversations, saveLocalConversations,
+} from '../../lib/conversations'
+import type { MobileConversation } from '../../lib/conversations'
 
 // Chat input attachments (images go to vision models; text files are inlined)
 type Attachment =
@@ -26,9 +33,18 @@ const TEXT_FILE_EXTS = new Set([
   'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt', 'sql',
   'sh', 'bash', 'zsh', 'env', 'log',
 ])
-const DOC_FILE_EXTS = new Set(['pdf', 'docx', 'xlsx', 'xls'])
+const DOC_FILE_EXTS = new Set(['pdf', 'docx', 'doc', 'pptx', 'xlsx'])
+const IMAGE_FILE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])
+const DOC_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+])
 const MAX_INLINE_TEXT_CHARS = 200_000
 const MAX_DOC_BYTES = 25 * 1024 * 1024
+const MAX_IMAGE_DATA_URL_CHARS = 4_000_000
 
 function extOf(nameOrUri?: string | null): string {
   const clean = (nameOrUri ?? '').split('?')[0].split('#')[0]
@@ -54,7 +70,19 @@ function isTextLikeFile(asset: DocumentPicker.DocumentPickerAsset): boolean {
 }
 
 function isDocFile(asset: DocumentPicker.DocumentPickerAsset): boolean {
-  return DOC_FILE_EXTS.has(extOf(asset.name || asset.uri))
+  return DOC_FILE_EXTS.has(extOf(asset.name || asset.uri)) || DOC_MIME_TYPES.has((asset.mimeType ?? '').toLowerCase())
+}
+
+function conversationPreview(conversation: MobileConversation): string {
+  const message = [...conversation.messages].reverse().find(m => m.role !== 'system' && messageText(m.content).trim())
+  return message ? messageText(message.content).replace(/\s+/g, ' ').trim().slice(0, 90) : 'No messages yet'
+}
+
+function conversationDate(updatedAt: number): string {
+  const date = new Date(updatedAt)
+  const now = new Date()
+  if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -89,6 +117,7 @@ const STT_LANG: Record<string, string> = {
 
 export default function ChatScreen() {
   const router = useRouter()
+  const { hasShareIntent, shareIntent, resetShareIntent, error: shareIntentError } = useShareIntentContext()
   const [guest,       setGuest]       = useState(false)   // anonymous user → free models only
   const [entitled,    setEntitled]    = useState(false)   // paid on web / active paid plan → full models on iOS (Guideline 3.1.3)
   const [model,       setModel]       = useState('deepseek-v4-flash')
@@ -108,9 +137,18 @@ export default function ChatScreen() {
   const [attachments,   setAttachments]   = useState<Attachment[]>([])
   const [showAttach,    setShowAttach]    = useState(false)
   const [listening,     setListening]     = useState(false)   // voice input active
+  const [conversations, setConversations] = useState<MobileConversation[]>([])
+  const [activeConvId,  setActiveConvId]  = useState<string | null>(null)
+  const [showHistory,   setShowHistory]   = useState(false)
+  const [historyQuery,  setHistoryQuery]  = useState('')
+  const [historyLoading,setHistoryLoading]= useState(true)
   const voiceBaseRef = useRef('')          // input text captured when voice started
   const listRef    = useRef<FlatList>(null)
   const lockTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const conversationsRef = useRef<MobileConversation[]>([])
+  const activeConvIdRef = useRef<string | null>(null)
+  const userIdRef = useRef<string | null>(null)
+  const shareIntentBusyRef = useRef(false)
 
   const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
   const curLang  = CHAT_LANGS.find(l => l.code === responseLang) ?? CHAT_LANGS[0]
@@ -124,22 +162,71 @@ export default function ChatScreen() {
   const freeOnly      = iosRestricted || guest
   const visibleModels = iosRestricted ? MODELS.filter(m => m.free) : MODELS
 
-  // Load persisted state
+  // Load local history first, then merge the signed-in user's cross-device cloud history.
   useEffect(() => {
+    let cancelled = false
     Promise.all([
-      AsyncStorage.getItem('mobile_messages'),
+      loadLocalConversations(),
       AsyncStorage.getItem('response_lang'),
       AsyncStorage.getItem('custom_api_url'),
       getSecret('custom_api_key'),
-      AsyncStorage.getItem('conv_title'),
-    ]).then(([msgs, lang, apiUrl, apiKey, title]) => {
-      if (msgs) setMessages(JSON.parse(msgs))
+    ]).then(async ([local, lang, apiUrl, apiKey]) => {
+      if (cancelled) return
       if (lang) setResponseLang(lang)
       if (apiUrl) setCustomApiUrl(apiUrl)
       if (apiKey) setCustomApiKey(apiKey)
-      if (title) setConvTitle(title)
-    })
+
+      conversationsRef.current = local.conversations
+      setConversations(local.conversations)
+      const localActive = local.conversations.find(c => c.id === local.activeId) ?? local.conversations[0] ?? null
+      activeConvIdRef.current = localActive?.id ?? null
+      setActiveConvId(localActive?.id ?? null)
+      setMessages(localActive?.messages ?? [])
+      setConvTitle(localActive?.title ?? '')
+      if (localActive?.model) setModel(localActive.model)
+      setHistoryLoading(false)
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (cancelled) return
+      userIdRef.current = user?.id ?? null
+      if (user) {
+        try {
+          const cloud = await fetchCloudConversations(user.id)
+          const deleted = new Set(cloud.deletedIds)
+          const localNow = mergeConversations(conversationsRef.current, local.conversations).filter(c => !deleted.has(c.id))
+          const merged = mergeConversations(localNow, cloud.conversations)
+          const cloudById = new Map(cloud.conversations.map(c => [c.id, c]))
+          const localChanges = localNow.filter(c => !cloudById.has(c.id) || c.updatedAt > cloudById.get(c.id)!.updatedAt)
+          if (localChanges.length) void saveCloudConversations(user.id, localChanges).catch(() => undefined)
+          if (cancelled) return
+          conversationsRef.current = merged
+          setConversations(merged)
+          const selectedId = activeConvIdRef.current
+          const selected = selectedId && !deleted.has(selectedId)
+            ? merged.find(c => c.id === selectedId) ?? null
+            : merged[0] ?? null
+          if (selected) {
+            activeConvIdRef.current = selected.id
+            setActiveConvId(selected.id)
+            setMessages(selected.messages)
+            setConvTitle(selected.title)
+            setModel(selected.model)
+          } else if (selectedId && deleted.has(selectedId)) {
+            const freshId = createConversationId()
+            activeConvIdRef.current = freshId
+            setActiveConvId(freshId)
+            setMessages([])
+            setConvTitle('')
+          }
+          await saveLocalConversations(merged, activeConvIdRef.current)
+        } catch { /* keep local history available offline */ }
+      }
+    }).catch(() => { if (!cancelled) setHistoryLoading(false) })
+    return () => { cancelled = true }
   }, [])
+
+  useEffect(() => { conversationsRef.current = conversations }, [conversations])
+  useEffect(() => { activeConvIdRef.current = activeConvId }, [activeConvId])
 
   // Detect guest (anonymous) users + paid entitlement.
   // Entitlement = the user actually purchased on the web (net paid > 0) or has an
@@ -238,7 +325,7 @@ export default function ChatScreen() {
     if (v) setModel(v.id)
   }
 
-  async function addImage(asset: ImagePicker.ImagePickerAsset) {
+  async function addImage(asset: ImagePicker.ImagePickerAsset): Promise<boolean> {
     const mime = imageMime(asset)
     let base64 = asset.base64 ?? ''
     if (!base64 && asset.uri) {
@@ -248,11 +335,16 @@ export default function ChatScreen() {
     }
     if (!base64) {
       Alert.alert('Could not attach image', 'Please choose a local photo or take a new picture.')
-      return
+      return false
     }
     const dataUrl = `data:${mime};base64,${base64}`
+    if (dataUrl.length > MAX_IMAGE_DATA_URL_CHARS) {
+      Alert.alert('Image too large', 'Please choose a smaller image or reduce its resolution before attaching it.')
+      return false
+    }
     setAttachments(prev => [...prev, { kind: 'image', uri: asset.uri || dataUrl, dataUrl }])
     ensureVisionModel()
+    return true
   }
 
   async function pickPhoto() {
@@ -297,50 +389,179 @@ export default function ChatScreen() {
     return json.truncated ? `${text}\n\n[Document was truncated to fit the chat context.]` : text
   }
 
-  async function pickFile() {
-    setShowAttach(false)
-    const res = await DocumentPicker.getDocumentAsync({
-      // iOS MIME/UTI mapping can hide valid text files when this is too narrow.
-      // Let the picker show files, then validate and read only text/code locally.
-      type: '*/*',
-      copyToCacheDirectory: true,
-    })
-    if (res.canceled || !res.assets[0]) return
-    const f = res.assets[0]
+  async function addDocument(f: DocumentPicker.DocumentPickerAsset): Promise<boolean> {
     const isDoc = isDocFile(f)
     if ((f.size ?? 0) > (isDoc ? MAX_DOC_BYTES : MAX_INLINE_TEXT_CHARS)) {
       Alert.alert('File too large', isDoc ? 'Please attach a document under 25 MB.' : 'Please attach a text or code file under ~200 KB.')
-      return
+      return false
     }
     if (!isDoc && !isTextLikeFile(f)) {
-      Alert.alert('Unsupported file', 'Bayze can read PDF, Word, Excel, CSV, Markdown, JSON, XML and code/text files.')
-      return
+      Alert.alert('Unsupported file', 'Bayze can read PDF, Word, PowerPoint, Excel (.xlsx), CSV, Markdown, JSON, XML and code/text files.')
+      return false
     }
     try {
       let text = ''
       if (isDoc) {
         const { data: { session } } = await supabase.auth.getSession()
-        if (!session) { Alert.alert('Sign in required', 'Please sign in before attaching documents.'); return }
+        if (!session) { Alert.alert('Sign in required', 'Please sign in before attaching documents.'); return false }
         text = await extractDocumentText(f, session.access_token)
       } else {
         text = await FileSystem.readAsStringAsync(f.uri, { encoding: FileSystem.EncodingType.UTF8 })
       }
       if (text.length > MAX_INLINE_TEXT_CHARS) text = `${text.slice(0, MAX_INLINE_TEXT_CHARS)}\n\n[File was truncated to fit the chat context.]`
-      if (!text.trim()) { Alert.alert('Empty file', 'This file does not contain readable text.'); return }
+      if (!text.trim()) { Alert.alert('Empty file', 'This file does not contain readable text.'); return false }
       setAttachments(prev => [...prev, { kind: 'file', name: f.name, text }])
+      return true
     } catch (err) {
       Alert.alert('Could not read file', err instanceof Error ? err.message : 'Please try another file.')
+      return false
     }
   }
+
+  async function pickFile() {
+    setShowAttach(false)
+    const res = await DocumentPicker.getDocumentAsync({
+      // Narrow MIME/UTI filters can hide valid files. Validate after selection.
+      type: '*/*',
+      copyToCacheDirectory: true,
+    })
+    if (!res.canceled && res.assets[0]) await addDocument(res.assets[0])
+  }
+
+  // Receive photos, documents, text and links shared from WeChat or another app.
+  useEffect(() => {
+    if (!hasShareIntent || shareIntentBusyRef.current) return
+    shareIntentBusyRef.current = true
+
+    const consumeShareIntent = async () => {
+      try {
+        setShowAttach(false)
+        setShowHistory(false)
+        setError('')
+
+        const sharedText = (shareIntent.text || shareIntent.webUrl || '').trim()
+        if (sharedText) setInput(previous => previous.trim() ? `${previous}\n${sharedText}` : sharedText)
+
+        for (const file of shareIntent.files ?? []) {
+          const name = file.fileName || file.path.split('/').pop() || 'shared-file'
+          const mime = (file.mimeType || '').toLowerCase()
+          const extension = extOf(name || file.path)
+          if (mime.startsWith('image/') || IMAGE_FILE_EXTS.has(extension)) {
+            await addImage({
+              uri: file.path,
+              fileName: name,
+              mimeType: mime || undefined,
+              width: file.width ?? 0,
+              height: file.height ?? 0,
+            } as ImagePicker.ImagePickerAsset)
+          } else {
+            await addDocument({
+              uri: file.path,
+              name,
+              mimeType: mime || undefined,
+              size: file.size ?? undefined,
+            })
+          }
+        }
+      } finally {
+        resetShareIntent()
+        shareIntentBusyRef.current = false
+      }
+    }
+
+    void consumeShareIntent()
+  }, [hasShareIntent, shareIntent, resetShareIntent])
+
+  useEffect(() => {
+    if (shareIntentError) setError(`Could not receive shared content: ${shareIntentError}`)
+  }, [shareIntentError])
 
   function removeAttachment(i: number) {
     setAttachments(prev => prev.filter((_, idx) => idx !== i))
   }
 
+  function persistConversation(conversation: MobileConversation) {
+    const next = [conversation, ...conversationsRef.current.filter(c => c.id !== conversation.id)]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 80)
+    conversationsRef.current = next
+    setConversations(next)
+    void saveLocalConversations(next, conversation.id)
+    const userId = userIdRef.current
+    if (userId) void saveCloudConversation(userId, conversation).catch(() => undefined)
+  }
+
+  function startNewChat() {
+    if (streaming) return
+    const id = createConversationId()
+    activeConvIdRef.current = id
+    setActiveConvId(id)
+    setMessages([])
+    setConvTitle('')
+    setInput('')
+    setAttachments([])
+    setError('')
+    setShowHistory(false)
+    void saveLocalConversations(conversationsRef.current, id)
+    relock()
+  }
+
+  function switchConversation(id: string) {
+    if (streaming || id === activeConvId) { setShowHistory(false); return }
+    const target = conversationsRef.current.find(c => c.id === id)
+    if (!target) return
+    activeConvIdRef.current = target.id
+    setActiveConvId(target.id)
+    setMessages(target.messages)
+    setConvTitle(target.title)
+    setModel(target.model)
+    setInput('')
+    setAttachments([])
+    setError('')
+    setShowHistory(false)
+    void saveLocalConversations(conversationsRef.current, target.id)
+    relock()
+  }
+
+  function removeConversation(id: string) {
+    if (streaming) return
+    const next = conversationsRef.current.filter(c => c.id !== id)
+    conversationsRef.current = next
+    setConversations(next)
+    let nextActiveId = activeConvId
+    if (id === activeConvId) {
+      const target = next[0] ?? null
+      nextActiveId = target?.id ?? createConversationId()
+      activeConvIdRef.current = nextActiveId
+      setActiveConvId(nextActiveId)
+      setMessages(target?.messages ?? [])
+      setConvTitle(target?.title ?? '')
+      if (target?.model) setModel(target.model)
+      setInput('')
+      setAttachments([])
+    }
+    void saveLocalConversations(next, nextActiveId)
+    const userId = userIdRef.current
+    if (userId) void deleteCloudConversation(userId, id).catch(() => undefined)
+    relock()
+  }
+
+  function confirmRemoveConversation(id: string) {
+    Alert.alert('Delete conversation?', 'This removes the conversation from all synced devices.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => removeConversation(id) },
+    ])
+  }
+
   const send = useCallback(async (text?: string) => {
     const trimmed = (text ?? input).trim()
     if ((!trimmed && attachments.length === 0) || streaming) return
-    setError(''); setInput(''); Keyboard.dismiss()
+    setError('')
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) { setError('Not authenticated'); return }
+
+    setInput(''); Keyboard.dismiss()
     try { ExpoSpeechRecognitionModule.stop() } catch {} setListening(false)
 
     // Build content: plain string, or multimodal parts when attachments exist
@@ -360,19 +581,20 @@ export default function ChatScreen() {
     setAttachments([])
 
     // Auto-set conversation title from first user message
-    if (messages.length === 0 && !convTitle) {
-      const autoTitle = (messageText(content) || (hadAttachments ? 'Image chat' : '')).slice(0, 40)
-      if (autoTitle) { setConvTitle(autoTitle); AsyncStorage.setItem('conv_title', autoTitle) }
-    }
+    const nextTitle = messages.length === 0 && !convTitle
+      ? ((messageText(content) || (hadAttachments ? 'Image chat' : 'New chat')).slice(0, 40))
+      : (convTitle || 'New chat')
+    const conversationId = activeConvId ?? createConversationId()
+    activeConvIdRef.current = conversationId
+    setActiveConvId(conversationId)
+    setConvTitle(nextTitle)
 
     const userMsg: Message     = { role: 'user', content }
     const asstSlot: Message    = { role: 'assistant', content: '' }
-    const nextMsgs             = [...messages, userMsg, asstSlot]
-    setMessages(nextMsgs)
+    const baseMessages         = [...messages, userMsg]
+    let finalMessages          = [...baseMessages, asstSlot]
+    setMessages(finalMessages)
     setStreaming(true)
-
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { setError('Not authenticated'); setStreaming(false); return }
 
     try {
       for await (const delta of streamChat({
@@ -383,28 +605,33 @@ export default function ChatScreen() {
         customApiUrl: customApiUrl || undefined,
         customApiKey: customApiKey || undefined,
       })) {
-        setMessages(prev => {
-          const updated = prev.map((m, i) =>
-            i === prev.length - 1
-              ? { ...m, content: (typeof m.content === 'string' ? m.content : '') + delta }
-              : m
-          )
-          AsyncStorage.setItem('mobile_messages', JSON.stringify(updated.slice(-120)))
-          return updated
-        })
+        const current = finalMessages[finalMessages.length - 1]
+        finalMessages = [
+          ...baseMessages,
+          { ...current, content: (typeof current.content === 'string' ? current.content : '') + delta },
+        ]
+        setMessages(finalMessages)
         listRef.current?.scrollToEnd({ animated: false })
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error')
-      setMessages(prev => prev.slice(0, -1))
-    } finally { setStreaming(false) }
-  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle, attachments])
+      finalMessages = baseMessages
+      setMessages(finalMessages)
+    } finally {
+      persistConversation({
+        id: conversationId,
+        title: nextTitle,
+        model,
+        messages: finalMessages.slice(-120),
+        updatedAt: Date.now(),
+      })
+      setStreaming(false)
+    }
+  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle, attachments, activeConvId])
 
-  function clearChat() {
-    setMessages([])
-    setConvTitle('')
-    AsyncStorage.multiRemove(['mobile_messages', 'conv_title'])
-    relock()
+  function deleteActiveConversation() {
+    if (!activeConvId) { startNewChat(); return }
+    removeConversation(activeConvId)
   }
 
   // ── Delete lock helpers ──────────────────────────────────────
@@ -436,10 +663,19 @@ export default function ChatScreen() {
     const t = renameInput.trim()
     if (t) {
       setConvTitle(t)
-      AsyncStorage.setItem('conv_title', t)
+      if (activeConvId && messages.length) {
+        persistConversation({ id: activeConvId, title: t, model, messages, updatedAt: Date.now() })
+      }
     }
     setShowRename(false)
   }
+
+  const normalizedHistoryQuery = historyQuery.trim().toLowerCase()
+  const filteredConversations = conversations.filter(conversation => {
+    if (!normalizedHistoryQuery) return true
+    return conversation.title.toLowerCase().includes(normalizedHistoryQuery) ||
+      conversation.messages.some(message => messageText(message.content).toLowerCase().includes(normalizedHistoryQuery))
+  })
 
   return (
     <KeyboardAvoidingView
@@ -466,8 +702,17 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Right: Lang + Top-up + Clear */}
+        {/* Right: history + language + top-up */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            onPress={() => setShowHistory(true)}
+            style={s.iconBtn}
+            activeOpacity={0.7}
+            disabled={streaming}
+            accessibilityLabel="Conversation history"
+          >
+            <Ionicons name="time-outline" size={18} color={C.text} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => setShowLangs(true)} style={s.iconBtn} activeOpacity={0.7}>
             <Text style={s.iconBtnText}>🌐</Text>
             {responseLang ? <Text style={s.langDot} /> : null}
@@ -505,7 +750,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
             {/* Delete lock — tap lock icon to unlock, then tap again to delete */}
             <TouchableOpacity
-              onPress={() => deleteLocked ? unlock() : clearChat()}
+              onPress={() => deleteLocked ? unlock() : deleteActiveConversation()}
               style={s.titleBarIconBtn} activeOpacity={0.7}
             >
               <Text style={[s.titleBarIcon, {
@@ -522,7 +767,7 @@ export default function ChatScreen() {
             <Text style={s.statusText} numberOfLines={1}>
               {curModel.name}{customApiUrl ? '  ·  Custom API' : '  ·  LanWealth'}
             </Text>
-            <TouchableOpacity onPress={clearChat} activeOpacity={0.7}>
+            <TouchableOpacity onPress={startNewChat} activeOpacity={0.7}>
               <Text style={s.statusNewChat}>+ New chat</Text>
             </TouchableOpacity>
           </View>
@@ -658,6 +903,83 @@ export default function ChatScreen() {
           }
         </TouchableOpacity>
       </View>
+
+      {/* ── Conversation history ─────────────────────────────────────────── */}
+      <Modal visible={showHistory} transparent animationType="slide" onRequestClose={() => setShowHistory(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setShowHistory(false)}>
+          <Pressable style={[s.sheet, s.historySheet]} onPress={e => e.stopPropagation()}>
+            <View style={s.sheetHandle} />
+            <View style={s.historyHeader}>
+              <View>
+                <Text style={s.sheetTitle}>Conversation history</Text>
+                <Text style={s.historyCount}>{conversations.length} saved conversations</Text>
+              </View>
+              <TouchableOpacity
+                style={s.historyNewBtn}
+                onPress={startNewChat}
+                activeOpacity={0.8}
+                accessibilityLabel="New conversation"
+              >
+                <Ionicons name="create-outline" size={19} color="#04130C" />
+                <Text style={s.historyNewText}>New</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={s.historySearch}>
+              <Ionicons name="search-outline" size={18} color={C.muted} />
+              <TextInput
+                value={historyQuery}
+                onChangeText={setHistoryQuery}
+                placeholder="Search titles and messages"
+                placeholderTextColor={C.muted}
+                style={s.historySearchInput}
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              {historyQuery ? (
+                <TouchableOpacity onPress={() => setHistoryQuery('')} accessibilityLabel="Clear search">
+                  <Ionicons name="close-circle" size={18} color={C.muted} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {historyLoading ? (
+              <View style={s.historyEmpty}>
+                <ActivityIndicator color={C.teal} />
+                <Text style={s.historyEmptyText}>Syncing conversations…</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={filteredConversations}
+                keyExtractor={item => item.id}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={filteredConversations.length ? undefined : s.historyEmpty}
+                ListEmptyComponent={<Text style={s.historyEmptyText}>{historyQuery ? 'No matching conversations' : 'No conversations yet'}</Text>}
+                renderItem={({ item }) => (
+                  <View style={[s.historyRow, item.id === activeConvId && s.historyRowActive]}>
+                    <TouchableOpacity style={s.historyRowMain} onPress={() => switchConversation(item.id)} activeOpacity={0.7}>
+                      <View style={s.historyRowTitleLine}>
+                        <Text style={[s.historyRowTitle, item.id === activeConvId && { color: C.teal }]} numberOfLines={1}>{item.title}</Text>
+                        <Text style={s.historyRowDate}>{conversationDate(item.updatedAt)}</Text>
+                      </View>
+                      <Text style={s.historyRowPreview} numberOfLines={1}>{conversationPreview(item)}</Text>
+                      <Text style={s.historyRowModel} numberOfLines={1}>{MODELS.find(m => m.id === item.model)?.name ?? item.model}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={s.historyDeleteBtn}
+                      onPress={() => confirmRemoveConversation(item.id)}
+                      accessibilityLabel={`Delete ${item.title}`}
+                    >
+                      <Ionicons name="trash-outline" size={17} color={C.muted} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              />
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── Attach action sheet ────────────────────────────────────────────── */}
       <Modal visible={showAttach} transparent animationType="slide" onRequestClose={() => setShowAttach(false)}>
@@ -879,6 +1201,26 @@ const s = StyleSheet.create({
   freePillText: { fontSize:10, color:C.teal, fontWeight:'600' },
   lockPill:     { backgroundColor:C.bg4, borderWidth:1, borderColor:C.border2, borderRadius:5, paddingHorizontal:6, paddingVertical:2 },
   lockPillText: { fontSize:10, color:C.muted, fontWeight:'600' },
+
+  // Conversation history
+  historySheet:      { height:'82%', maxHeight:'82%', paddingBottom:24 },
+  historyHeader:     { flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:14 },
+  historyCount:      { fontSize:11, color:C.muted, marginTop:-8 },
+  historyNewBtn:     { minWidth:76, height:36, borderRadius:8, backgroundColor:C.teal, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:5, paddingHorizontal:10 },
+  historyNewText:    { color:'#04130C', fontSize:13, fontWeight:'700' },
+  historySearch:     { height:44, borderRadius:10, backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:12, marginBottom:10 },
+  historySearchInput:{ flex:1, color:C.text, fontSize:14, paddingVertical:0 },
+  historyRow:        { minHeight:88, flexDirection:'row', alignItems:'center', borderBottomWidth:1, borderBottomColor:C.border, paddingLeft:12 },
+  historyRowActive:  { backgroundColor:'rgba(26,235,168,0.05)', borderLeftWidth:2, borderLeftColor:C.teal, paddingLeft:10 },
+  historyRowMain:    { flex:1, minWidth:0, paddingVertical:12, paddingRight:8 },
+  historyRowTitleLine:{ flexDirection:'row', alignItems:'center', gap:10 },
+  historyRowTitle:   { flex:1, minWidth:0, color:C.text, fontSize:14, fontWeight:'600' },
+  historyRowDate:    { color:C.muted, fontSize:10, flexShrink:0 },
+  historyRowPreview: { color:'#77798A', fontSize:12, marginTop:5 },
+  historyRowModel:   { color:C.dim, fontSize:10, marginTop:4 },
+  historyDeleteBtn:  { width:42, height:42, alignItems:'center', justifyContent:'center', flexShrink:0 },
+  historyEmpty:      { flexGrow:1, minHeight:180, alignItems:'center', justifyContent:'center', gap:10 },
+  historyEmptyText:  { color:C.muted, fontSize:13, textAlign:'center' },
 
   // Message image (in-bubble thumbnail)
   msgImage:     { width:200, height:200, borderRadius:10, marginBottom:6, backgroundColor:C.bg4 },
