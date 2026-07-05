@@ -108,3 +108,25 @@ Sign in (optional) to sync chats across devices, unlock premium models, and mana
 - **外部充值入口**:Android 端目前显示「充值」跳网页(iOS 已隐藏)。Google Play 对「应用内数字商品」也有支付政策,稳妥起见首发可考虑像 iOS 一样在安卓也隐藏外部充值链接,或用 Google Play Billing。**上架前再定**,不阻塞建 App。
 - **隐私政策**已完整(10 节),直接填 URL 即可,无需改。
 - 账号删除:Google 要求可删号;现有途径=邮件 support@lanwealth.com(30 天清除),建议日后做个网页删除表单更稳。
+
+---
+
+## 🔑 EAS 安卓提交:服务账号密钥(google-play-key.json)
+
+`eas.json` 的 android submit 配置为本地文件路径:
+```json
+"android": { "serviceAccountKeyPath": "./google-play-key.json", ... }
+```
+
+⚠️ **该文件已 .gitignore、不入库;当前仓库/机器上不存在。** 因此现在直接跑
+`eas submit --platform android` 会因**找不到密钥文件而失败**。发安卓前二选一:
+
+- **(推荐)存到 EAS 服务端凭据**:一次性把 Google Play 服务账号 JSON 上传到 EAS,
+  之后 `eas submit` 从服务端取,CI 与任意机器都不再依赖本地文件。
+  做法:`eas credentials`(选 Android → Google Service Account),或
+  `eas submit -p android` 首次会引导上传;上传后可删掉 `serviceAccountKeyPath` 改用凭据。
+- **(临时)本地文件**:把 Google Play Console 下载的服务账号 JSON 放到仓库根、
+  命名 `google-play-key.json`(会被 gitignore),再跑 `eas submit -p android`。
+
+> iOS 提交走 `eas.json` 里的 appleId/ascAppId,不受此影响。
+> 背景:安卓发布本就卡在 Play 账号/测试人数,此密钥问题在实际提交前解决即可,不阻塞开发。
