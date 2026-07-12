@@ -22,3 +22,6 @@ store-screenshots/
 
 # Google Play service account key — NEVER commit
 google-play-key.json
+
+# TypeScript 增量编译缓存
+*.tsbuildinfo
