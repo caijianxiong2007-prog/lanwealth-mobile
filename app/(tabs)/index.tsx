@@ -250,6 +250,22 @@ export default function ChatScreen() {
     })
   }, [])
 
+  // 公司/个人 双模式(对齐网页版布局,2026-07-18):仅当用户在企业内且企业政策允许时
+  // 显示切换。个人模式由服务端双向隔离(不读不写企业记忆/文件);游客与非企业成员无此概念。
+  const [chatScope, setChatScope] = useState<'company' | 'personal'>('company')
+  const [personalModeAvail, setPersonalModeAvail] = useState(false)
+  useEffect(() => {
+    if (guest) { setPersonalModeAvail(false); return }
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) return
+      try {
+        const r = await fetch(`${APP_URL}/api/org/settings`, { headers: { Authorization: `Bearer ${session.access_token}` } })
+        const j = await r.json().catch(() => ({})) as { in_org?: boolean; allow_personal_mode?: boolean }
+        setPersonalModeAvail(Boolean(j?.in_org) && j?.allow_personal_mode !== false)
+      } catch { /* 拉不到就不显示切换,默认公司模式 */ }
+    })
+  }, [guest])
+
   async function openAuth() {
     if (guest) await supabase.auth.signOut()
     router.push('/(auth)/login')
@@ -604,6 +620,7 @@ export default function ChatScreen() {
         responseLang: responseLang || undefined,
         customApiUrl: customApiUrl || undefined,
         customApiKey: customApiKey || undefined,
+        scope:        personalModeAvail ? chatScope : undefined,
       })) {
         const current = finalMessages[finalMessages.length - 1]
         finalMessages = [
@@ -627,7 +644,7 @@ export default function ChatScreen() {
       })
       setStreaming(false)
     }
-  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle, attachments, activeConvId])
+  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle, attachments, activeConvId, chatScope, personalModeAvail])
 
   function deleteActiveConversation() {
     if (!activeConvId) { startNewChat(); return }
@@ -865,6 +882,23 @@ export default function ChatScreen() {
             </View>
           ))}
         </ScrollView>
+      )}
+
+      {/* ── 公司/个人 模式切换(企业成员且政策允许时显示,对齐网页版) ── */}
+      {personalModeAvail && (
+        <View style={s.scopeRow}>
+          {(['company', 'personal'] as const).map(sc => (
+            <TouchableOpacity key={sc} onPress={() => setChatScope(sc)} activeOpacity={0.7}
+              style={[s.scopePill, chatScope === sc && s.scopePillOn]}>
+              <Text style={[s.scopeTxt, chatScope === sc && s.scopeTxtOn]}>
+                {sc === 'company' ? '🏢 公司' : '🔒 个人'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+          {chatScope === 'personal' && (
+            <Text style={s.scopeHint} numberOfLines={1}>个人模式:不读不写企业记忆</Text>
+          )}
+        </View>
       )}
 
       {/* ── Input ──────────────────────────────────────────────────────────── */}
@@ -1182,6 +1216,12 @@ const s = StyleSheet.create({
   errText: { color:C.red, fontSize:13 },
 
   // Input
+  scopeRow:     { flexDirection:'row', alignItems:'center', gap:8, marginHorizontal:12, marginTop:2 },
+  scopePill:    { paddingVertical:5, paddingHorizontal:12, borderRadius:9, borderWidth:1, borderColor:C.border2, backgroundColor:C.bg3 },
+  scopePillOn:  { backgroundColor:C.teal, borderColor:C.teal },
+  scopeTxt:     { color:C.dim, fontSize:12, fontWeight:'600' },
+  scopeTxtOn:   { color:'#050505' },
+  scopeHint:    { color:C.dim, fontSize:11, flexShrink:1 },
   inputRow:     { flexDirection:'row', alignItems:'flex-end', margin:12, gap:8, backgroundColor:C.bg3, borderWidth:1.5, borderColor:C.border2, borderRadius:14, padding:8, paddingLeft:14 },
   inputField:   { flex:1, color:C.text, fontSize:15, maxHeight:130, paddingVertical:4, lineHeight:22 },
   sendBtn:      { width:38, height:38, borderRadius:10, backgroundColor:C.teal, alignItems:'center', justifyContent:'center', flexShrink:0 },
