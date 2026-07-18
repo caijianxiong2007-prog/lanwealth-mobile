@@ -257,15 +257,24 @@ export default function ChatScreen() {
   const [inOrg, setInOrg] = useState(false)
   useEffect(() => {
     if (guest) { setPersonalModeAvail(false); setInOrg(false); return }
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) return
+    let cancelled = false
+    // ⚠️ 冷启动竞态(1.3.0 实测):App 刚启动时 getSession() 可能在会话恢复完成前返回 null,
+    // 只拉一次企业身份会永远拉空 → 工具条不显示。改为:立即拉一次 + 监听 auth 状态
+    // (INITIAL_SESSION/SIGNED_IN/TOKEN_REFRESHED)到位后重拉。
+    const load = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session || cancelled) return
       try {
         const r = await fetch(`${APP_URL}/api/org/settings`, { headers: { Authorization: `Bearer ${session.access_token}` } })
         const j = await r.json().catch(() => ({})) as { in_org?: boolean; allow_personal_mode?: boolean }
+        if (cancelled) return
         setInOrg(Boolean(j?.in_org))
         setPersonalModeAvail(Boolean(j?.in_org) && j?.allow_personal_mode !== false)
-      } catch { /* 拉不到就不显示切换,默认公司模式 */ }
-    })
+      } catch { /* 拉不到暂不显示,auth 事件到来时会重试 */ }
+    }
+    void load()
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => { if (session) void load() })
+    return () => { cancelled = true; sub.subscription.unsubscribe() }
   }, [guest])
 
   // 关联客户 + 记入企业知识(对齐网页版,2026-07-18)。端点与网页同一套(Bearer 鉴权):
@@ -823,20 +832,12 @@ export default function ChatScreen() {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <View style={s.header}>
-        {/* Left: Bayze logo + model picker */}
+        {/* Left: 品牌行(对齐网页版:logo + Bayze 字标;模型选择移到第二行) */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
           <View style={s.headerLogo}>
             <Image source={require('../../assets/bayze-logo.png')} style={s.headerLogoImg} resizeMode="contain" />
           </View>
-          <TouchableOpacity
-            onPress={() => setShowModels(true)}
-            style={s.modelBtn}
-            activeOpacity={0.7}
-          >
-            <Text style={s.modelName} numberOfLines={1}>{curModel.name}</Text>
-            {curModel.free && <Text style={s.freeBadge}>Free</Text>}
-            <Text style={s.modelChevron}>▾</Text>
-          </TouchableOpacity>
+          <Text style={s.brandText}>Bayze</Text>
         </View>
 
         {/* Right: history + language + top-up */}
@@ -864,6 +865,18 @@ export default function ChatScreen() {
           )}
           {/* 🗑 moved to title bar below */}
         </View>
+      </View>
+
+      {/* ── 第二行:模型选择 + 新会话(对齐网页版「模型下拉 + 清除」行) ── */}
+      <View style={s.headerSub}>
+        <TouchableOpacity onPress={() => setShowModels(true)} style={[s.modelBtn, { flex: 1 }]} activeOpacity={0.7}>
+          <Text style={s.modelName} numberOfLines={1}>{curModel.name}</Text>
+          {curModel.free && <Text style={s.freeBadge}>Free</Text>}
+          <Text style={s.modelChevron}>▾</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={startNewChat} style={s.newChatBtn} activeOpacity={0.7} disabled={streaming}>
+          <Text style={s.newChatTxt}>＋ 新会话</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ── Active conversation title bar + status strip ──────────────────── */}
@@ -899,15 +912,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Status row: model + new chat */}
-          <View style={s.statusStrip}>
-            <Text style={s.statusText} numberOfLines={1}>
-              {curModel.name}{customApiUrl ? '  ·  Custom API' : '  ·  LanWealth'}
-            </Text>
-            <TouchableOpacity onPress={startNewChat} activeOpacity={0.7}>
-              <Text style={s.statusNewChat}>+ New chat</Text>
-            </TouchableOpacity>
-          </View>
+          {/* 旧 status strip(模型名 + New chat)已并入头部第二行,不再重复 */}
         </View>
       )}
 
@@ -1314,7 +1319,11 @@ export default function ChatScreen() {
 // ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   // Header
-  header:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:14, paddingTop: Platform.OS==='ios' ? 54 : 14, paddingBottom:10, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border },
+  header:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:14, paddingTop: Platform.OS==='ios' ? 54 : 14, paddingBottom:8, backgroundColor:C.bg2 },
+  brandText:    { color:C.text, fontSize:17, fontWeight:'800', letterSpacing:0.3 },
+  headerSub:    { flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:14, paddingBottom:10, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border },
+  newChatBtn:   { paddingHorizontal:12, paddingVertical:7, borderRadius:8, borderWidth:1, borderColor:C.border2, backgroundColor:C.bg3 },
+  newChatTxt:   { color:C.teal, fontSize:13, fontWeight:'600' },
   headerLogo:   { width:28, height:28, borderRadius:7, backgroundColor:'rgba(255,255,255,0.9)', alignItems:'center', justifyContent:'center', padding:3 },
   headerLogoImg:{ width:22, height:22 },
   modelBtn:     { flexDirection:'row', alignItems:'center', gap:5, backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, borderRadius:8, paddingHorizontal:10, paddingVertical:6, flexShrink:1 },
@@ -1373,7 +1382,7 @@ const s = StyleSheet.create({
   custName:     { color:C.text, fontSize:15 },
   scopePill:    { paddingVertical:5, paddingHorizontal:12, borderRadius:9, borderWidth:1, borderColor:C.border2, backgroundColor:C.bg3 },
   scopePillOn:  { backgroundColor:C.teal, borderColor:C.teal },
-  scopeTxt:     { color:C.dim, fontSize:12, fontWeight:'600' },
+  scopeTxt:     { color:C.text, fontSize:12, fontWeight:'600' },
   scopeTxtOn:   { color:'#050505' },
   scopeHint:    { color:C.dim, fontSize:11, flexShrink:1 },
   inputRow:     { flexDirection:'row', alignItems:'flex-end', margin:12, gap:8, backgroundColor:C.bg3, borderWidth:1.5, borderColor:C.border2, borderRadius:14, padding:8, paddingLeft:14 },
