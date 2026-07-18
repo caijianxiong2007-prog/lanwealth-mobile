@@ -61,10 +61,11 @@ interface ChatOptions {
   customApiUrl?: string   // OpenAI-compatible base URL (BYOK)
   customApiKey?: string   // API key for custom endpoint
   scope?:        'company' | 'personal'   // 公司/个人双模式(服务端在企业+政策允许时生效,个人=双向隔离)
+  customerId?:   string                   // 关联客户 — 服务端注入该客户档案+记忆(过客户 ACL)
 }
 
 export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
-  const { accessToken, model, messages, responseLang, customApiUrl, customApiKey, scope } = opts
+  const { accessToken, model, messages, responseLang, customApiUrl, customApiKey, scope, customerId } = opts
 
   // Prepend system language instruction if set
   const allMessages: Message[] = []
@@ -86,7 +87,7 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
 
   const body = useCustom
     ? JSON.stringify({ model, messages: allMessages, stream: true })
-    : JSON.stringify({ model, messages: allMessages, ...(scope ? { scope } : {}) })
+    : JSON.stringify({ model, messages: allMessages, ...(scope ? { scope } : {}), ...(customerId ? { customerId } : {}) })
 
   // React Native's fetch does not expose a streaming body (res.body.getReader is
   // undefined), so we stream over XMLHttpRequest, whose responseText accumulates

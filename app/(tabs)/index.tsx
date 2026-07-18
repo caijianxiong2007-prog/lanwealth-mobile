@@ -254,17 +254,108 @@ export default function ChatScreen() {
   // 显示切换。个人模式由服务端双向隔离(不读不写企业记忆/文件);游客与非企业成员无此概念。
   const [chatScope, setChatScope] = useState<'company' | 'personal'>('company')
   const [personalModeAvail, setPersonalModeAvail] = useState(false)
+  const [inOrg, setInOrg] = useState(false)
   useEffect(() => {
-    if (guest) { setPersonalModeAvail(false); return }
+    if (guest) { setPersonalModeAvail(false); setInOrg(false); return }
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) return
       try {
         const r = await fetch(`${APP_URL}/api/org/settings`, { headers: { Authorization: `Bearer ${session.access_token}` } })
         const j = await r.json().catch(() => ({})) as { in_org?: boolean; allow_personal_mode?: boolean }
+        setInOrg(Boolean(j?.in_org))
         setPersonalModeAvail(Boolean(j?.in_org) && j?.allow_personal_mode !== false)
       } catch { /* 拉不到就不显示切换,默认公司模式 */ }
     })
   }, [guest])
+
+  // 关联客户 + 记入企业知识(对齐网页版,2026-07-18)。端点与网页同一套(Bearer 鉴权):
+  // GET /api/org/customers · POST /api/org/knowhow/extract · POST customers/{id}/extract→notes。
+  const [customerId, setCustomerId] = useState('')
+  const [customerName, setCustomerName] = useState('')
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([])
+  const [showCustPicker, setShowCustPicker] = useState(false)
+  const [sinking, setSinking] = useState(false)
+  const sunkKnowhowRef = useRef<Set<string>>(new Set())
+  const sunkCustRef = useRef<Set<string>>(new Set())
+
+  // 模型偶尔无视 persona 禁令输出裸 HTML 标签(实测 Gemini Flash-Lite 吐 <br><small>),
+  // 渲染前按白名单剥离;只动已知无害标签,不误伤 "a < b" 这类正文。
+  function stripStrayHtml(t: string): string {
+    return t
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/?(?:small|b|i|em|strong|u|sub|sup|span|p|div|hr|h[1-6])\b[^>]*>/gi, '')
+  }
+
+  function convoPlainText(msgs: Message[]): string {
+    return msgs.filter(m => m.role !== 'system').map(m => {
+      const body = messageText(m.content)
+      return `${m.role === 'user' ? '我方' : 'AI'}: ${body}`
+    }).join('\n').slice(0, 12000)
+  }
+
+  async function bearerHeaders(): Promise<Record<string, string> | null> {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return null
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }
+  }
+
+  // 切走/新建会话时对刚离开的会话静默沉淀(与网页 autoSinkKnowhow/autoSinkCustomer 同规则:
+  // 企业成员、公司模式、≥2轮、每会话一次;best-effort 失败静默)。
+  function autoSinkOnLeave() {
+    if (!inOrg || chatScope === 'personal') return
+    const convId = activeConvIdRef.current
+    if (!convId) return
+    const msgs = messages
+    if (msgs.filter(m => m.role === 'user').length < 2) return
+    const text = convoPlainText(msgs)
+    if (!text.trim()) return
+    const custId = customerId
+    void bearerHeaders().then(headers => {
+      if (!headers) return
+      if (!sunkKnowhowRef.current.has(convId)) {
+        sunkKnowhowRef.current.add(convId)
+        fetch(`${APP_URL}/api/org/knowhow/extract`, { method: 'POST', headers, body: JSON.stringify({ text }) }).catch(() => undefined)
+      }
+      if (custId && !sunkCustRef.current.has(convId)) {
+        sunkCustRef.current.add(convId)
+        fetch(`${APP_URL}/api/org/customers/${custId}/extract`, { method: 'POST', headers, body: JSON.stringify({ text }) })
+          .then(r => r.json()).then(j => {
+            const points: string[] = Array.isArray(j?.points) ? j.points : []
+            if (points.length) return fetch(`${APP_URL}/api/org/customers/${custId}/notes`, { method: 'POST', headers, body: JSON.stringify({ contents: points }) })
+          }).catch(() => undefined)
+      }
+    })
+  }
+
+  // 「＋记入企业知识」手动沉淀:即时全公司生效(auto 级),管理员可在企业页复核。
+  async function sinkKnowhow() {
+    if (sinking) return
+    const convId = activeConvIdRef.current
+    const text = convoPlainText(messages)
+    if (!text.trim()) { Alert.alert('当前对话为空', '先聊几句再记入企业知识。'); return }
+    const headers = await bearerHeaders()
+    if (!headers) { Alert.alert('请先登录'); return }
+    setSinking(true)
+    try {
+      const r = await fetch(`${APP_URL}/api/org/knowhow/extract`, { method: 'POST', headers, body: JSON.stringify({ text }) })
+      const j = await r.json().catch(() => ({}))
+      if (j?.ok) {
+        if (convId) sunkKnowhowRef.current.add(convId)
+        Alert.alert('已记入', j.added ? `已记入 ${j.added} 条企业知识,即时全公司生效(管理员可在企业页复核)。` : '未提炼出可沉淀的新知识(可能已存在)。')
+      } else Alert.alert('记入失败', String(j?.error ?? '请重试'))
+    } catch { Alert.alert('记入失败', '网络异常,请重试') }
+    setSinking(false)
+  }
+
+  async function openCustomerPicker() {
+    setShowCustPicker(true)
+    const headers = await bearerHeaders()
+    if (!headers) return
+    fetch(`${APP_URL}/api/org/customers`, { headers })
+      .then(r => r.json())
+      .then(j => setCustomers((Array.isArray(j?.customers) ? j.customers : []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }))))
+      .catch(() => undefined)
+  }
 
   async function openAuth() {
     if (guest) await supabase.auth.signOut()
@@ -385,19 +476,43 @@ export default function ChatScreen() {
   }
 
   async function extractDocumentText(f: DocumentPicker.DocumentPickerAsset, accessToken: string): Promise<string> {
-    const fd = new FormData()
-    fd.append('file', {
-      uri:  f.uri,
-      name: f.name,
-      type: f.mimeType ?? 'application/octet-stream',
-    } as unknown as Blob)
-    fd.append('name', f.name)
-
-    const res = await fetch(`${APP_URL}/api/extract`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: fd,
-    })
+    let res: Response
+    if ((f.size ?? 0) > 4 * 1024 * 1024) {
+      // >4MB 直传 /api/extract 会撞 Vercel 平台 ~4.5MB 请求体上限(平台层 413,到不了代码)。
+      // 与网页版同方案:签名直传存储 → 按 storagePath 解析(2026-07-18 补齐,此前必失败)。
+      const ur = await fetch(`${APP_URL}/api/extract/upload-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ name: f.name, size: f.size ?? 0 }),
+      })
+      const uj = await ur.json().catch(() => ({})) as { signedUrl?: string; path?: string; error?: string }
+      if (!ur.ok || !uj?.signedUrl || !uj?.path) throw new Error(uj?.error ?? `Upload channel failed (${ur.status})`)
+      const fileBlob = await (await fetch(f.uri)).blob()
+      const put = await fetch(uj.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': f.mimeType ?? 'application/octet-stream', 'x-upsert': 'false' },
+        body: fileBlob,
+      })
+      if (!put.ok) throw new Error(`File upload failed (${put.status}), please retry.`)
+      res = await fetch(`${APP_URL}/api/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ storagePath: uj.path, name: f.name }),
+      })
+    } else {
+      const fd = new FormData()
+      fd.append('file', {
+        uri:  f.uri,
+        name: f.name,
+        type: f.mimeType ?? 'application/octet-stream',
+      } as unknown as Blob)
+      fd.append('name', f.name)
+      res = await fetch(`${APP_URL}/api/extract`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: fd,
+      })
+    }
     const json = await res.json().catch(() => ({})) as { text?: string; error?: string; truncated?: boolean }
     if (!res.ok) throw new Error(json.error ?? `Could not read file (${res.status})`)
     const text = String(json.text ?? '').trim()
@@ -509,6 +624,8 @@ export default function ChatScreen() {
 
   function startNewChat() {
     if (streaming) return
+    autoSinkOnLeave()
+    setCustomerId(''); setCustomerName('')
     const id = createConversationId()
     activeConvIdRef.current = id
     setActiveConvId(id)
@@ -526,6 +643,8 @@ export default function ChatScreen() {
     if (streaming || id === activeConvId) { setShowHistory(false); return }
     const target = conversationsRef.current.find(c => c.id === id)
     if (!target) return
+    autoSinkOnLeave()
+    setCustomerId(''); setCustomerName('')
     activeConvIdRef.current = target.id
     setActiveConvId(target.id)
     setMessages(target.messages)
@@ -620,7 +739,8 @@ export default function ChatScreen() {
         responseLang: responseLang || undefined,
         customApiUrl: customApiUrl || undefined,
         customApiKey: customApiKey || undefined,
-        scope:        personalModeAvail ? chatScope : undefined,
+        scope:        inOrg ? chatScope : undefined,
+        customerId:   inOrg && chatScope === 'company' && customerId ? customerId : undefined,
       })) {
         const current = finalMessages[finalMessages.length - 1]
         finalMessages = [
@@ -644,7 +764,7 @@ export default function ChatScreen() {
       })
       setStreaming(false)
     }
-  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle, attachments, activeConvId, chatScope, personalModeAvail])
+  }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle, attachments, activeConvId, chatScope, inOrg, customerId])
 
   function deleteActiveConversation() {
     if (!activeConvId) { startNewChat(); return }
@@ -840,7 +960,7 @@ export default function ChatScreen() {
                   <Image key={i} source={{ uri: url }} style={s.msgImage} resizeMode="cover" />
                 ))}
                 {messageText(msg.content)
-                  ? <Text style={[s.msgText, msg.role === 'user' && s.userMsgText]} selectable>{messageText(msg.content)}</Text>
+                  ? <Text style={[s.msgText, msg.role === 'user' && s.userMsgText]} selectable>{stripStrayHtml(messageText(msg.content))}</Text>
                   : (typeof msg.content === 'string' && msg.content === ''
                       ? <Text style={{ color: C.teal, fontSize: 16 }}>▌</Text>
                       : null)
@@ -884,10 +1004,10 @@ export default function ChatScreen() {
         </ScrollView>
       )}
 
-      {/* ── 公司/个人 模式切换(企业成员且政策允许时显示,对齐网页版) ── */}
-      {personalModeAvail && (
-        <View style={s.scopeRow}>
-          {(['company', 'personal'] as const).map(sc => (
+      {/* ── 企业工具条:公司/个人切换 · 关联客户 · 记入企业知识(对齐网页版) ── */}
+      {inOrg && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.scopeScroll} contentContainerStyle={s.scopeRow}>
+          {personalModeAvail && (['company', 'personal'] as const).map(sc => (
             <TouchableOpacity key={sc} onPress={() => setChatScope(sc)} activeOpacity={0.7}
               style={[s.scopePill, chatScope === sc && s.scopePillOn]}>
               <Text style={[s.scopeTxt, chatScope === sc && s.scopeTxtOn]}>
@@ -895,10 +1015,19 @@ export default function ChatScreen() {
               </Text>
             </TouchableOpacity>
           ))}
-          {chatScope === 'personal' && (
+          {chatScope === 'company' ? (
+            <>
+              <TouchableOpacity style={[s.scopePill, !!customerId && s.scopePillCust]} onPress={openCustomerPicker} activeOpacity={0.7}>
+                <Text style={s.scopeTxt} numberOfLines={1}>👤 {customerName || '关联客户'} ▾</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.scopePill} onPress={sinkKnowhow} disabled={sinking} activeOpacity={0.7}>
+                <Text style={s.scopeTxt}>{sinking ? '记入中…' : '＋记入企业知识'}</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
             <Text style={s.scopeHint} numberOfLines={1}>个人模式:不读不写企业记忆</Text>
           )}
-        </View>
+        </ScrollView>
       )}
 
       {/* ── Input ──────────────────────────────────────────────────────────── */}
@@ -1016,6 +1145,27 @@ export default function ChatScreen() {
       </Modal>
 
       {/* ── Attach action sheet ────────────────────────────────────────────── */}
+      <Modal visible={showCustPicker} transparent animationType="slide" onRequestClose={() => setShowCustPicker(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setShowCustPicker(false)}>
+          <Pressable style={s.sheet} onPress={() => undefined}>
+            <Text style={s.sheetTitle}>关联客户</Text>
+            <ScrollView>
+              <TouchableOpacity style={s.custRow} activeOpacity={0.7}
+                onPress={() => { setCustomerId(''); setCustomerName(''); setShowCustPicker(false) }}>
+                <Text style={[s.custName, !customerId && { color: C.teal }]}>不关联</Text>
+              </TouchableOpacity>
+              {customers.map(c => (
+                <TouchableOpacity key={c.id} style={s.custRow} activeOpacity={0.7}
+                  onPress={() => { setCustomerId(c.id); setCustomerName(c.name); setShowCustPicker(false) }}>
+                  <Text style={[s.custName, customerId === c.id && { color: C.teal }]} numberOfLines={1}>{c.name}</Text>
+                </TouchableOpacity>
+              ))}
+              {customers.length === 0 && <Text style={s.scopeHint}>暂无客户(在网页版「客户记忆」页创建)</Text>}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal visible={showAttach} transparent animationType="slide" onRequestClose={() => setShowAttach(false)}>
         <Pressable style={s.modalOverlay} onPress={() => setShowAttach(false)}>
           <Pressable style={[s.sheet, { paddingBottom: 30 }]} onPress={e => e.stopPropagation()}>
@@ -1216,7 +1366,11 @@ const s = StyleSheet.create({
   errText: { color:C.red, fontSize:13 },
 
   // Input
-  scopeRow:     { flexDirection:'row', alignItems:'center', gap:8, marginHorizontal:12, marginTop:2 },
+  scopeScroll:  { flexGrow:0, marginTop:2 },
+  scopeRow:     { flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:12 },
+  scopePillCust:{ borderColor:C.teal },
+  custRow:      { paddingVertical:12, borderBottomWidth:1, borderBottomColor:C.border2 },
+  custName:     { color:C.text, fontSize:15 },
   scopePill:    { paddingVertical:5, paddingHorizontal:12, borderRadius:9, borderWidth:1, borderColor:C.border2, backgroundColor:C.bg3 },
   scopePillOn:  { backgroundColor:C.teal, borderColor:C.teal },
   scopeTxt:     { color:C.dim, fontSize:12, fontWeight:'600' },
