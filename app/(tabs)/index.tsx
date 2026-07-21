@@ -840,20 +840,10 @@ export default function ChatScreen() {
           <Text style={s.brandText}>Bayze</Text>
         </View>
 
-        {/* Right: history + language + top-up */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <TouchableOpacity
-            onPress={() => setShowHistory(true)}
-            style={s.iconBtn}
-            activeOpacity={0.7}
-            disabled={streaming}
-            accessibilityLabel="Conversation history"
-          >
-            <Ionicons name="time-outline" size={18} color={C.text} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setShowLangs(true)} style={s.iconBtn} activeOpacity={0.7}>
-            <Text style={s.iconBtnText}>🌐</Text>
-            {responseLang ? <Text style={s.langDot} /> : null}
+        {/* Right(对齐网页版行1):语言 pill · 充值(条件) · Sign out;历史移到行2 ☰ */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity onPress={() => setShowLangs(true)} style={s.headerPill} activeOpacity={0.7}>
+            <Text style={s.headerPillTxt}>🌐 {curLang.code ? curLang.code.toUpperCase() : '自动'}</Text>
           </TouchableOpacity>
           {showExternalBilling && (
             <TouchableOpacity
@@ -863,19 +853,28 @@ export default function ChatScreen() {
               <Text style={[s.iconBtnText, { color: C.teal, fontSize: 12 }]}>充值 +</Text>
             </TouchableOpacity>
           )}
-          {/* 🗑 moved to title bar below */}
+          <TouchableOpacity
+            onPress={async () => { await supabase.auth.signOut(); router.replace('/(auth)/login') }}
+            activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8 }}
+          >
+            <Text style={s.signOutTxt}>Sign out</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* ── 第二行:模型选择 + 新会话(对齐网页版「模型下拉 + 清除」行) ── */}
+      {/* ── 第二行(对齐网页版):☰ 历史 · 模型下拉 · 清除 ── */}
       <View style={s.headerSub}>
+        <TouchableOpacity onPress={() => setShowHistory(true)} style={s.iconBtn} activeOpacity={0.7}
+          disabled={streaming} accessibilityLabel="Conversation history">
+          <Ionicons name="menu-outline" size={20} color={C.text} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setShowModels(true)} style={[s.modelBtn, { flex: 1 }]} activeOpacity={0.7}>
           <Text style={s.modelName} numberOfLines={1}>{curModel.name}</Text>
           {curModel.free && <Text style={s.freeBadge}>Free</Text>}
           <Text style={s.modelChevron}>▾</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={startNewChat} style={s.newChatBtn} activeOpacity={0.7} disabled={streaming}>
-          <Text style={s.newChatTxt}>＋ 新会话</Text>
+          <Text style={s.newChatTxt}>清除</Text>
         </TouchableOpacity>
       </View>
 
@@ -1009,9 +1008,10 @@ export default function ChatScreen() {
         </ScrollView>
       )}
 
-      {/* ── 企业工具条:公司/个人切换 · 关联客户 · 记入企业知识(对齐网页版) ── */}
+      {/* ── 企业工具条(对齐网页版):公司/个人 · 关联客户 · 记入企业知识 ──
+          ⚠️ 不用横向 ScrollView:iOS 下其测高不稳,会被输入框压住;网页版同款换行块 */}
       {inOrg && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.scopeScroll} contentContainerStyle={s.scopeRow}>
+        <View style={s.scopeWrap}>
           {personalModeAvail && (['company', 'personal'] as const).map(sc => (
             <TouchableOpacity key={sc} onPress={() => setChatScope(sc)} activeOpacity={0.7}
               style={[s.scopePill, chatScope === sc && s.scopePillOn]}>
@@ -1032,7 +1032,7 @@ export default function ChatScreen() {
           ) : (
             <Text style={s.scopeHint} numberOfLines={1}>个人模式:不读不写企业记忆</Text>
           )}
-        </ScrollView>
+        </View>
       )}
 
       {/* ── Input ──────────────────────────────────────────────────────────── */}
@@ -1375,8 +1375,10 @@ const s = StyleSheet.create({
   errText: { color:C.red, fontSize:13 },
 
   // Input
-  scopeScroll:  { flexGrow:0, marginTop:2 },
-  scopeRow:     { flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:12 },
+  scopeWrap:    { flexDirection:'row', flexWrap:'wrap', alignItems:'center', gap:8, paddingHorizontal:12, paddingTop:8, paddingBottom:2, backgroundColor:C.bg },
+  headerPill:   { flexDirection:'row', alignItems:'center', paddingHorizontal:10, paddingVertical:5, borderRadius:8, borderWidth:1, borderColor:C.border2, backgroundColor:C.bg3 },
+  headerPillTxt:{ color:C.text, fontSize:12, fontWeight:'600' },
+  signOutTxt:   { color:C.muted, fontSize:13, fontWeight:'500' },
   scopePillCust:{ borderColor:C.teal },
   custRow:      { paddingVertical:12, borderBottomWidth:1, borderBottomColor:C.border2 },
   custName:     { color:C.text, fontSize:15 },
