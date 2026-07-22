@@ -265,11 +265,16 @@ export default function ChatScreen() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session || cancelled) return
       try {
-        const r = await fetch(`${APP_URL}/api/org/settings`, { headers: { Authorization: `Bearer ${session.access_token}` } })
+        const headers = { Authorization: `Bearer ${session.access_token}` }
+        const r = await fetch(`${APP_URL}/api/org/settings`, { headers })
         const j = await r.json().catch(() => ({})) as { in_org?: boolean; allow_personal_mode?: boolean }
         if (cancelled) return
         setInOrg(Boolean(j?.in_org))
         setPersonalModeAvail(Boolean(j?.in_org) && j?.allow_personal_mode !== false)
+        // 一户多企:当前企业名 + 多企业下拉切换(否则对话/沉淀归属看不见,知识库会混)
+        const mr = await fetch(`${APP_URL}/api/org/memberships`, { headers })
+        const mj = await mr.json().catch(() => ({})) as { memberships?: { org_id: string; org_name: string; active: boolean }[] }
+        if (!cancelled) setOrgs(Array.isArray(mj?.memberships) ? mj.memberships : [])
       } catch { /* 拉不到暂不显示,auth 事件到来时会重试 */ }
     }
     void load()
@@ -283,6 +288,41 @@ export default function ChatScreen() {
   const [customerName, setCustomerName] = useState('')
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([])
   const [showCustPicker, setShowCustPicker] = useState(false)
+  // 一户多企(2026-07-21 用户反馈):不显示当前企业会导致知识沉淀进错库
+  const [orgs, setOrgs] = useState<{ org_id: string; org_name: string; active: boolean }[]>([])
+  const [showOrgPicker, setShowOrgPicker] = useState(false)
+  const [orgSwitching, setOrgSwitching] = useState(false)
+  const activeOrgName = orgs.find(o => o.active)?.org_name ?? ''
+
+  // 切换当前企业(与网页版同一后端语义:写 users.active_org_id,全端生效)
+  async function switchOrg(orgId: string) {
+    if (orgSwitching) return
+    const headers = await bearerHeaders()
+    if (!headers) { Alert.alert('请先登录'); return }
+    setOrgSwitching(true)
+    try {
+      const r = await fetch(`${APP_URL}/api/org/memberships`, { method: 'POST', headers, body: JSON.stringify({ org_id: orgId }) })
+      if (r.ok) {
+        setShowOrgPicker(false)
+        // 客户名册属旧企业,清空;企业上下文整体重拉
+        setCustomerId(''); setCustomerName(''); setCustomers([])
+        const sr = await fetch(`${APP_URL}/api/org/settings`, { headers })
+        const sj = await sr.json().catch(() => ({})) as { in_org?: boolean; allow_personal_mode?: boolean }
+        setInOrg(Boolean(sj?.in_org))
+        setPersonalModeAvail(Boolean(sj?.in_org) && sj?.allow_personal_mode !== false)
+        const mr = await fetch(`${APP_URL}/api/org/memberships`, { headers })
+        const mj = await mr.json().catch(() => ({})) as { memberships?: { org_id: string; org_name: string; active: boolean }[] }
+        const list = Array.isArray(mj?.memberships) ? mj!.memberships! : []
+        setOrgs(list)
+        const name = list.find(o => o.active)?.org_name ?? ''
+        Alert.alert('已切换企业', `当前企业:${name}\n此后对话、知识沉淀、客户记忆均归属该企业(网页/桌面端同步生效)。`)
+      } else {
+        const j = await r.json().catch(() => ({}))
+        Alert.alert('切换失败', String((j as { error?: string })?.error ?? r.status))
+      }
+    } catch { Alert.alert('切换失败', '网络异常,请重试') }
+    setOrgSwitching(false)
+  }
   const [sinking, setSinking] = useState(false)
   const sunkKnowhowRef = useRef<Set<string>>(new Set())
   const sunkCustRef = useRef<Set<string>>(new Set())
@@ -1012,6 +1052,17 @@ export default function ChatScreen() {
           ⚠️ 不用横向 ScrollView:iOS 下其测高不稳,会被输入框压住;网页版同款换行块 */}
       {inOrg && (
         <View style={s.scopeWrap}>
+          {activeOrgName !== '' && (
+            <TouchableOpacity
+              style={[s.scopePill, s.orgPill]}
+              onPress={() => { if (orgs.length > 1) setShowOrgPicker(true) }}
+              activeOpacity={orgs.length > 1 ? 0.7 : 1}
+              disabled={orgSwitching}>
+              <Text style={[s.scopeTxt, { color: C.teal }]} numberOfLines={1}>
+                🏢 {activeOrgName}{orgs.length > 1 ? ' ▾' : ''}
+              </Text>
+            </TouchableOpacity>
+          )}
           {personalModeAvail && (['company', 'personal'] as const).map(sc => (
             <TouchableOpacity key={sc} onPress={() => setChatScope(sc)} activeOpacity={0.7}
               style={[s.scopePill, chatScope === sc && s.scopePillOn]}>
@@ -1150,6 +1201,25 @@ export default function ChatScreen() {
       </Modal>
 
       {/* ── Attach action sheet ────────────────────────────────────────────── */}
+      <Modal visible={showOrgPicker} transparent animationType="slide" onRequestClose={() => setShowOrgPicker(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setShowOrgPicker(false)}>
+          <Pressable style={s.sheet} onPress={() => undefined}>
+            <Text style={s.sheetTitle}>切换当前企业</Text>
+            <Text style={[s.scopeHint, { marginBottom: 8 }]}>对话、知识沉淀、客户记忆都会归属所选企业(全端生效)</Text>
+            <ScrollView>
+              {orgs.map(o => (
+                <TouchableOpacity key={o.org_id} style={s.custRow} activeOpacity={0.7} disabled={orgSwitching}
+                  onPress={() => { if (!o.active) void switchOrg(o.org_id); else setShowOrgPicker(false) }}>
+                  <Text style={[s.custName, o.active && { color: C.teal }]} numberOfLines={1}>
+                    🏢 {o.org_name}{o.active ? '  ✓ 当前' : ''}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal visible={showCustPicker} transparent animationType="slide" onRequestClose={() => setShowCustPicker(false)}>
         <Pressable style={s.modalOverlay} onPress={() => setShowCustPicker(false)}>
           <Pressable style={s.sheet} onPress={() => undefined}>
@@ -1380,6 +1450,7 @@ const s = StyleSheet.create({
   headerPillTxt:{ color:C.text, fontSize:12, fontWeight:'600' },
   signOutTxt:   { color:C.muted, fontSize:13, fontWeight:'500' },
   scopePillCust:{ borderColor:C.teal },
+  orgPill:      { borderColor:C.teal, maxWidth:200 },
   custRow:      { paddingVertical:12, borderBottomWidth:1, borderBottomColor:C.border2 },
   custName:     { color:C.text, fontSize:15 },
   scopePill:    { paddingVertical:5, paddingHorizontal:12, borderRadius:9, borderWidth:1, borderColor:C.border2, backgroundColor:C.bg3 },
