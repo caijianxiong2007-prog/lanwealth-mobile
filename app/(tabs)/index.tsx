@@ -11,6 +11,7 @@ import * as ImagePicker    from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem     from 'expo-file-system'
 import { useShareIntentContext } from 'expo-share-intent'
+import Markdown from 'react-native-markdown-display'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { supabase }                  from '../../lib/supabase'
 import { APP_URL, streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
@@ -108,6 +109,47 @@ const SUGGESTIONS = [
   'Review and improve my code',
   'Draft a professional email',
 ]
+
+// ── 助手消息 Markdown 渲染(2026-07-24):服务端 persona 要求模型用 Markdown 输出
+//    (标题/表格/加粗,导出系统依赖),此前手机端整段裸文本渲染 → 表格显示为裸管道符。
+//    流式进行中仍走纯文本(避免逐 token 重解析与半成型表格闪烁),完成后切 Markdown。
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace' })
+const MD_STYLES = {
+  body:        { fontSize: 15, color: C.text, lineHeight: 23 },
+  paragraph:   { marginTop: 2, marginBottom: 8 },
+  heading1:    { fontSize: 21, fontWeight: '800' as const, marginTop: 10, marginBottom: 6, color: C.text },
+  heading2:    { fontSize: 18, fontWeight: '700' as const, marginTop: 10, marginBottom: 5, color: C.text },
+  heading3:    { fontSize: 16, fontWeight: '700' as const, marginTop: 8, marginBottom: 4, color: C.text },
+  heading4:    { fontSize: 15, fontWeight: '700' as const, marginTop: 6, marginBottom: 3, color: C.text },
+  strong:      { fontWeight: '700' as const },
+  bullet_list: { marginVertical: 4 },
+  ordered_list:{ marginVertical: 4 },
+  list_item:   { marginVertical: 2 },
+  code_inline: { backgroundColor: C.bg4, color: C.teal, borderRadius: 4, paddingHorizontal: 5, fontFamily: MONO, fontSize: 13.5 },
+  code_block:  { backgroundColor: C.bg2, borderColor: C.border2, borderWidth: 1, borderRadius: 8, padding: 10, fontFamily: MONO, fontSize: 13, marginVertical: 6 },
+  fence:       { backgroundColor: C.bg2, borderColor: C.border2, borderWidth: 1, borderRadius: 8, padding: 10, fontFamily: MONO, fontSize: 13, marginVertical: 6 },
+  blockquote:  { backgroundColor: C.bg2, borderLeftColor: C.teal2, borderLeftWidth: 3, paddingHorizontal: 10, paddingVertical: 4, marginVertical: 6 },
+  hr:          { backgroundColor: C.border2, height: 1, marginVertical: 10 },
+  link:        { color: C.teal, textDecorationLine: 'underline' as const },
+  table:       { borderWidth: 1, borderColor: C.border2, borderRadius: 6, overflow: 'hidden' as const },
+  tr:          { borderBottomWidth: 1, borderColor: C.border2, flexDirection: 'row' as const },
+  th:          { backgroundColor: C.bg4, padding: 8, minWidth: 96, fontWeight: '700' as const },
+  td:          { padding: 8, minWidth: 96 },
+}
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const MD_RULES = {
+  // 宽表格横向滚动,不挤压列宽(td/th minWidth 撑开)
+  table: (node: any, children: any, _parent: any, styles: any) => (
+    <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
+      <View style={styles.table}>{children}</View>
+    </ScrollView>
+  ),
+  // 保持正文可长按选中复制(默认渲染不带 selectable)
+  textgroup: (node: any, children: any, _parent: any, styles: any) => (
+    <Text key={node.key} style={styles.textgroup} selectable>{children}</Text>
+  ),
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // Map chat response-language code → BCP-47 locale for speech recognition
 const STT_LANG: Record<string, string> = {
@@ -1004,7 +1046,12 @@ export default function ChatScreen() {
                   <Image key={i} source={{ uri: url }} style={s.msgImage} resizeMode="cover" />
                 ))}
                 {messageText(msg.content)
-                  ? <Text style={[s.msgText, msg.role === 'user' && s.userMsgText]} selectable>{stripStrayHtml(messageText(msg.content))}</Text>
+                  ? (msg.role === 'assistant' && !(streaming && index === messages.filter(m => m.role !== 'system').length - 1)
+                      ? <Markdown style={MD_STYLES} rules={MD_RULES}
+                          onLinkPress={(url: string) => { Linking.openURL(url).catch(() => {}); return false }}>
+                          {stripStrayHtml(messageText(msg.content))}
+                        </Markdown>
+                      : <Text style={[s.msgText, msg.role === 'user' && s.userMsgText]} selectable>{stripStrayHtml(messageText(msg.content))}</Text>)
                   : (typeof msg.content === 'string' && msg.content === ''
                       ? <Text style={{ color: C.teal, fontSize: 16 }}>▌</Text>
                       : null)
