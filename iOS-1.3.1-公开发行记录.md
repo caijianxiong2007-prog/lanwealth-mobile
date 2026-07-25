@@ -35,6 +35,6 @@
 - [ ] 发布方式建议:**分阶段发布(Phased Release)**,出问题可暂停。
 
 ## 结果
-- Build:(待填:buildNumber / FINISHED 时间)
-- TestFlight 提交:(待填:Submission ID)
+- Build:**1.3.1 (30)**,FINISHED 2026-07-25 03:17 UTC(排队+编译约 5 分钟)
+- TestFlight 提交:✅ 已上传 App Store Connect,Submission `da3f7d0f-20b4-4f63-8ca1-c7a107a5580f`(Apple processing 5-10 分钟后现身 TestFlight)
 - 提审:(待填:提交时间 / 审核结果)
