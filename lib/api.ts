@@ -83,6 +83,9 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
   const headers: Record<string, string> = {
     'Content-Type':  'application/json',
     'Authorization': `Bearer ${useCustom ? customApiKey : accessToken}`,
+    // 服务端据此下发「手机端导出引导」persona(无每条回复导出按钮);老版本无此头时
+    // 服务端还有 CFNetwork/okhttp UA 兜底识别。自定义 API 端点不需要。
+    ...(useCustom ? {} : { 'X-Bayze-Client': 'mobile-app' }),
   }
 
   const body = useCustom
