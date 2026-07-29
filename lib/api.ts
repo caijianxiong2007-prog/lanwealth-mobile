@@ -15,12 +15,13 @@ export const MODELS = [
   { id: 'gpt-5.4-mini',      name: 'GPT-5.4 mini',      tag: 'Fast',      group: 'OpenAI',    free: false, vision: true  },
   { id: 'gpt-5.6-terra',     name: 'GPT-5.6 Terra',     tag: 'Balanced',  group: 'OpenAI',    free: false, vision: true  },
   { id: 'gpt-5.6-sol',       name: 'GPT-5.6 Sol',       tag: 'Advanced',  group: 'OpenAI',    free: false, vision: true  },
-  { id: 'doubao-seed-lite',  name: 'Doubao 2.0 Lite',   tag: 'Fast',      group: 'ByteDance', free: false, vision: false },
-  { id: 'doubao-seed-pro',   name: 'Doubao 2.0 Pro',    tag: 'Balanced',  group: 'ByteDance', free: false, vision: false },
+  { id: 'doubao-seed-lite',  name: 'Doubao 2.0 Mini',   tag: 'Fast',      group: 'ByteDance', free: false, vision: false },
+  { id: 'doubao-seed-pro',   name: 'Doubao 2.1 Turbo',  tag: 'Balanced',  group: 'ByteDance', free: false, vision: false },
+  { id: 'doubao-seed-2.1-pro', name: 'Doubao 2.1 Pro',  tag: 'Advanced',  group: 'ByteDance', free: false, vision: false },
   { id: 'qwen3.5-flash',     name: 'Qwen3.5 Flash',     tag: 'Fast',      group: 'Qwen',      free: true,  vision: false },
   { id: 'qwen-plus',         name: 'Qwen Plus',         tag: 'Balanced',  group: 'Qwen',      free: false, vision: false },
   { id: 'qwen3.5-plus',      name: 'Qwen3.5 Plus',      tag: 'Advanced',  group: 'Qwen',      free: false, vision: false },
-  { id: 'glm-4.7',           name: 'GLM-4.7',           tag: 'Advanced',  group: 'Zhipu',     free: false, vision: false },
+  { id: 'glm-5.2',           name: 'GLM-5.2',           tag: 'Advanced',  group: 'Zhipu',     free: false, vision: false },
 ]
 
 // Languages the AI can respond in (via system prompt injection)
