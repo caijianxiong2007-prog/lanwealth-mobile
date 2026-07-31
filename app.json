@@ -23,7 +23,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0042C3"
+        "backgroundColor": "#3F72E0"
       },
       "package": "com.lanwealth.bayze"
     },
