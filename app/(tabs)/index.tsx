@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
   KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
-  Modal, Pressable, Linking, Image, Keyboard, Alert,
+  Modal, Pressable, Linking, Image, Keyboard, Alert, AppState, type AppStateStatus,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -303,25 +303,41 @@ export default function ChatScreen() {
     // ⚠️ 冷启动竞态(1.3.0 实测):App 刚启动时 getSession() 可能在会话恢复完成前返回 null,
     // 只拉一次企业身份会永远拉空 → 工具条不显示。改为:立即拉一次 + 监听 auth 状态
     // (INITIAL_SESSION/SIGNED_IN/TOKEN_REFRESHED)到位后重拉。
-    const load = async () => {
+    // ⚠️ 安卓实测(2026-08-01,1.3.2):启动期这次拉取若恰好网络抖动失败一次,auth 事件又已
+    // 全部发生过,状态会永久停在"不在企业"→ 企业工具条永不显示(iOS 正常纯属该次请求没失败)。
+    // 加固:失败指数退避重试(最多 5 次)+ App 回前台时若仍未拿到身份则补拉。
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let gotIdentity = false
+    const load = async (attempt = 0) => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session || cancelled) return
       try {
         const headers = { Authorization: `Bearer ${session.access_token}` }
         const r = await fetch(`${APP_URL}/api/org/settings`, { headers })
+        if (!r.ok) throw new Error(`org/settings ${r.status}`)
         const j = await r.json().catch(() => ({})) as { in_org?: boolean; allow_personal_mode?: boolean }
         if (cancelled) return
+        gotIdentity = true
         setInOrg(Boolean(j?.in_org))
         setPersonalModeAvail(Boolean(j?.in_org) && j?.allow_personal_mode !== false)
         // 一户多企:当前企业名 + 多企业下拉切换(否则对话/沉淀归属看不见,知识库会混)
         const mr = await fetch(`${APP_URL}/api/org/memberships`, { headers })
         const mj = await mr.json().catch(() => ({})) as { memberships?: { org_id: string; org_name: string; active: boolean }[] }
         if (!cancelled) setOrgs(Array.isArray(mj?.memberships) ? mj.memberships : [])
-      } catch { /* 拉不到暂不显示,auth 事件到来时会重试 */ }
+      } catch {
+        // 网络抖动:退避重试 5 次(3s/6s/12s/24s/48s),避免一次失败永久空置
+        if (!cancelled && !gotIdentity && attempt < 5) {
+          retryTimer = setTimeout(() => { void load(attempt + 1) }, 3000 * 2 ** attempt)
+        }
+      }
     }
     void load()
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => { if (session) void load() })
-    return () => { cancelled = true; sub.subscription.unsubscribe() }
+    // App 回前台:若身份仍未拿到(启动期全部重试都失败,如离线打开),补拉一次
+    const appStateSub = AppState.addEventListener('change', (st: AppStateStatus) => {
+      if (st === 'active' && !gotIdentity) void load()
+    })
+    return () => { cancelled = true; sub.subscription.unsubscribe(); appStateSub.remove(); if (retryTimer) clearTimeout(retryTimer) }
   }, [guest])
 
   // 关联客户 + 记入企业知识(对齐网页版,2026-07-18)。端点与网页同一套(Bearer 鉴权):
