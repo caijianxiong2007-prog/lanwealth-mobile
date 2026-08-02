@@ -1,4 +1,42 @@
+import { resolveBase, markBaseBad, getBase } from './baseUrl'
+
+/** @deprecated 仅用于展示性链接兜底;请求路径一律走 resolveBase()/apiFetch(多域名自动切换),展示链接优先 getBase() */
 export const APP_URL = 'https://app.lanwealth.com'
+
+// 网络层错误(连接被 RST/超时/中断),区别于 HTTP 状态错误 → 换域重试的依据
+function isNetworkError(e: unknown): boolean {
+  return e instanceof Error && (e.name === 'AbortError' || /Network request failed|aborted/i.test(e.message))
+}
+
+// 黑洞式丢包(无 RST)下也能触发换域,而非挂到系统默认超时
+const REQUEST_TIMEOUT = 20_000
+
+// 调用方未自带 signal 时补默认超时;自带则完全尊重调用方(自管取消/超时)
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  if (init?.signal) return fetch(url, init)
+  const ctrl  = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT)
+  try { return await fetch(url, { ...init, signal: ctrl.signal }) }
+  finally { clearTimeout(timer) }
+}
+
+// 统一平台 API fetch:多域名解析拼 URL;网络层错误 markBaseBad 后换新域重试一次(仅一次)。
+// 注意:重试会重发请求——非幂等 POST 在「请求已达服务端但响应前断线」窗口有重复执行可能,
+// 属容灾取舍(SNI 阻断都发生在 TLS 握手期,安全)。
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const base = await resolveBase()
+  try {
+    return await fetchWithTimeout(`${base}${path}`, init)
+  } catch (err) {
+    if (init?.signal?.aborted) throw err       // 调用方主动取消,不算域故障、不重试
+    if (!isNetworkError(err)) throw err
+    await markBaseBad()
+    const next = await resolveBase()
+    return fetchWithTimeout(`${next}${path}`, init)
+  }
+}
+
+export { resolveBase, getBase }
 
 // Mirrors the web ChatClient working set (ids must match gateway aliases on app.lanwealth.com).
 // 2026-07-29 换代(随 1.3.2 发版):Sonnet 5 / GPT-5.6 Terra+Sol / Gemini 3.5-flash-lite /
@@ -81,9 +119,6 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
   allMessages.push(...messages)
 
   const useCustom = !!(customApiUrl && customApiKey)
-  const url = useCustom
-    ? `${customApiUrl.replace(/\/$/, '')}/chat/completions`
-    : `${APP_URL}/api/chat`
 
   const headers: Record<string, string> = {
     'Content-Type':  'application/json',
@@ -100,53 +135,70 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
   // React Native's fetch does not expose a streaming body (res.body.getReader is
   // undefined), so we stream over XMLHttpRequest, whose responseText accumulates
   // and fires onprogress on both Expo Go and production native builds.
-  const queue: string[] = []
-  let finished = false
-  let failed: Error | null = null
-  let wake: (() => void) | null = null
-  const bump = () => { const w = wake; wake = null; w?.() }
+  async function* attempt(url: string): AsyncGenerator<string> {
+    const queue: string[] = []
+    let finished = false
+    let failed: Error | null = null
+    let wake: (() => void) | null = null
+    const bump = () => { const w = wake; wake = null; w?.() }
 
-  const xhr = new XMLHttpRequest()
-  xhr.open('POST', url)
-  for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', url)
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v)
 
-  let seen = 0
-  let buf  = ''
-  const consumeResponse = (flush = false) => {
-    buf += xhr.responseText.slice(seen)
-    seen = xhr.responseText.length
-    const lines = buf.split('\n')
-    buf = flush ? '' : (lines.pop() ?? '')
-    for (const line of lines) {
-      const normalized = line.trimEnd()
-      if (!normalized.startsWith('data: ')) continue
-      const payload = normalized.slice(6)
-      if (payload === '[DONE]') continue
-      try {
-        const delta = (JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content
-        if (delta) queue.push(delta)
-      } catch {}
+    let seen = 0
+    let buf  = ''
+    const consumeResponse = (flush = false) => {
+      buf += xhr.responseText.slice(seen)
+      seen = xhr.responseText.length
+      const lines = buf.split('\n')
+      buf = flush ? '' : (lines.pop() ?? '')
+      for (const line of lines) {
+        const normalized = line.trimEnd()
+        if (!normalized.startsWith('data: ')) continue
+        const payload = normalized.slice(6)
+        if (payload === '[DONE]') continue
+        try {
+          const delta = (JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content
+          if (delta) queue.push(delta)
+        } catch {}
+      }
+      bump()
     }
-    bump()
-  }
-  xhr.onprogress = () => consumeResponse()
-  xhr.onload = () => {
-    if (xhr.status >= 400) {
-      let msg = `HTTP ${xhr.status}`
-      try { msg = (JSON.parse(xhr.responseText) as { error?: string }).error ?? msg } catch {}
-      failed = new Error(msg)
-    } else {
-      consumeResponse(true)
+    xhr.onprogress = () => consumeResponse()
+    xhr.onload = () => {
+      if (xhr.status >= 400) {
+        let msg = `HTTP ${xhr.status}`
+        try { msg = (JSON.parse(xhr.responseText) as { error?: string }).error ?? msg } catch {}
+        failed = new Error(msg)
+      } else {
+        consumeResponse(true)
+      }
+      finished = true; bump()
     }
-    finished = true; bump()
-  }
-  xhr.onerror = () => { failed = new Error('Network request failed'); finished = true; bump() }
-  xhr.send(body)
+    xhr.onerror = () => { failed = new Error('Network request failed'); finished = true; bump() }
+    xhr.send(body)
 
-  while (true) {
-    if (queue.length) { yield queue.shift()!; continue }
-    if (failed)   throw failed
-    if (finished) return
-    await new Promise<void>(resolve => { wake = resolve })
+    while (true) {
+      if (queue.length) { yield queue.shift()!; continue }
+      if (failed)   throw failed
+      if (finished) return
+      await new Promise<void>(resolve => { wake = resolve })
+    }
+  }
+
+  // 自定义端点(BYOK)优先级最高,完全绕过多域名逻辑
+  if (useCustom) { yield* attempt(`${customApiUrl.replace(/\/$/, '')}/chat/completions`); return }
+
+  // 平台通道:多域名解析;网络层错误且尚未吐出任何内容 → 标记域失效换新域重试一次
+  const base = await resolveBase()
+  let yielded = false
+  try {
+    for await (const delta of attempt(`${base}/api/chat`)) { yielded = true; yield delta }
+  } catch (err) {
+    if (yielded || !(err instanceof Error) || !/Network request failed/i.test(err.message)) throw err
+    await markBaseBad()
+    const next = await resolveBase()
+    yield* attempt(`${next}/api/chat`)
   }
 }

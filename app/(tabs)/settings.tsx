@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase }  from '../../lib/supabase'
+import { apiFetch, getBase } from '../../lib/api'
 import { getSecret, removeSecret, setSecret } from '../../lib/secureSettings'
 
 const C = { bg:'#0A0A0B', bg2:'#111113', bg3:'#18181C', border:'#222228', border2:'#2C2C35', text:'#E4E4EA', muted:'#606070', dim:'#38383F', teal:'#1AEBA8', teal2:'#0F8C63', teal3:'#083D2B', red:'#E8453C' }
@@ -78,7 +79,7 @@ export default function SettingsScreen() {
     const token = session?.access_token
     if (!token) { Alert.alert('Error', 'Not signed in.'); return }
     try {
-      const res = await fetch('https://app.lanwealth.com/api/account/delete', {
+      const res = await apiFetch('/api/account/delete', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
       })
@@ -112,15 +113,16 @@ export default function SettingsScreen() {
           {/* Platform links */}
           <Text style={s.section}>Platform</Text>
           <View style={s.card}>
-            <TouchableOpacity style={s.row} onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard/billing')} activeOpacity={.7}>
+            {/* 跳网页链接用当前可用域(主域被封时用 APP_URL 会打不开) */}
+            <TouchableOpacity style={s.row} onPress={() => Linking.openURL(`${getBase()}/dashboard/billing`)} activeOpacity={.7}>
               <Text style={s.rowText}>💳  Top up credits</Text>
               <Text style={{ color:C.teal, fontSize:13 }}>Billing ↗</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.row} onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard')} activeOpacity={.7}>
+            <TouchableOpacity style={s.row} onPress={() => Linking.openURL(`${getBase()}/dashboard`)} activeOpacity={.7}>
               <Text style={s.rowText}>🌐  Web Dashboard</Text>
               <Text style={{ color:C.muted, fontSize:13 }}>↗</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => Linking.openURL('https://app.lanwealth.com/download')} activeOpacity={.7}>
+            <TouchableOpacity style={[s.row, { borderBottomWidth:0 }]} onPress={() => Linking.openURL(`${getBase()}/download`)} activeOpacity={.7}>
               <Text style={s.rowText}>💻  Desktop App</Text>
               <Text style={{ color:C.muted, fontSize:13 }}>Download ↗</Text>
             </TouchableOpacity>

@@ -3,6 +3,7 @@ import { Stack }                       from 'expo-router'
 import { StatusBar }                   from 'expo-status-bar'
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context'
 import { getSession, signInAsGuest, supabase } from '../lib/supabase'
+import { resolveBase }                 from '../lib/baseUrl'
 import { useRouter, useSegments }      from 'expo-router'
 import { ShareIntentProvider }         from 'expo-share-intent'
 
@@ -12,6 +13,9 @@ export default function RootLayout() {
   const inAuth     = segments[0] === '(auth)'
   const [ready, setReady] = useState(false)
   const guestTried = useRef(false)
+
+  // 冷启动预热多域名探测(与鉴权并行,首个请求就用上已解析基址)
+  useEffect(() => { void resolveBase() }, [])
 
   useEffect(() => {
     let mounted = true

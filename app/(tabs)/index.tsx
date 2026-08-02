@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Markdown from 'react-native-markdown-display'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { supabase }                  from '../../lib/supabase'
-import { APP_URL, streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
+import { apiFetch, getBase, streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
 import type { Message, ContentPart } from '../../lib/api'
 import { getSecret }                 from '../../lib/secureSettings'
 import {
@@ -315,7 +315,7 @@ export default function ChatScreen() {
       if (!session || cancelled) return
       try {
         const headers = { Authorization: `Bearer ${session.access_token}` }
-        const r = await fetch(`${APP_URL}/api/org/settings`, { headers })
+        const r = await apiFetch('/api/org/settings', { headers })
         if (!r.ok) throw new Error(`org/settings ${r.status}`)
         const j = await r.json().catch(() => ({})) as { in_org?: boolean; allow_personal_mode?: boolean }
         if (cancelled) return
@@ -323,7 +323,7 @@ export default function ChatScreen() {
         setInOrg(Boolean(j?.in_org))
         setPersonalModeAvail(Boolean(j?.in_org) && j?.allow_personal_mode !== false)
         // 一户多企:当前企业名 + 多企业下拉切换(否则对话/沉淀归属看不见,知识库会混)
-        const mr = await fetch(`${APP_URL}/api/org/memberships`, { headers })
+        const mr = await apiFetch('/api/org/memberships', { headers })
         const mj = await mr.json().catch(() => ({})) as { memberships?: { org_id: string; org_name: string; active: boolean }[] }
         if (!cancelled) setOrgs(Array.isArray(mj?.memberships) ? mj.memberships : [])
       } catch {
@@ -361,16 +361,16 @@ export default function ChatScreen() {
     if (!headers) { Alert.alert('请先登录'); return }
     setOrgSwitching(true)
     try {
-      const r = await fetch(`${APP_URL}/api/org/memberships`, { method: 'POST', headers, body: JSON.stringify({ org_id: orgId }) })
+      const r = await apiFetch('/api/org/memberships', { method: 'POST', headers, body: JSON.stringify({ org_id: orgId }) })
       if (r.ok) {
         setShowOrgPicker(false)
         // 客户名册属旧企业,清空;企业上下文整体重拉
         setCustomerId(''); setCustomerName(''); setCustomers([])
-        const sr = await fetch(`${APP_URL}/api/org/settings`, { headers })
+        const sr = await apiFetch('/api/org/settings', { headers })
         const sj = await sr.json().catch(() => ({})) as { in_org?: boolean; allow_personal_mode?: boolean }
         setInOrg(Boolean(sj?.in_org))
         setPersonalModeAvail(Boolean(sj?.in_org) && sj?.allow_personal_mode !== false)
-        const mr = await fetch(`${APP_URL}/api/org/memberships`, { headers })
+        const mr = await apiFetch('/api/org/memberships', { headers })
         const mj = await mr.json().catch(() => ({})) as { memberships?: { org_id: string; org_name: string; active: boolean }[] }
         const list = Array.isArray(mj?.memberships) ? mj!.memberships! : []
         setOrgs(list)
@@ -423,14 +423,14 @@ export default function ChatScreen() {
       if (!headers) return
       if (!sunkKnowhowRef.current.has(convId)) {
         sunkKnowhowRef.current.add(convId)
-        fetch(`${APP_URL}/api/org/knowhow/extract`, { method: 'POST', headers, body: JSON.stringify({ text }) }).catch(() => undefined)
+        apiFetch('/api/org/knowhow/extract', { method: 'POST', headers, body: JSON.stringify({ text }) }).catch(() => undefined)
       }
       if (custId && !sunkCustRef.current.has(convId)) {
         sunkCustRef.current.add(convId)
-        fetch(`${APP_URL}/api/org/customers/${custId}/extract`, { method: 'POST', headers, body: JSON.stringify({ text }) })
+        apiFetch(`/api/org/customers/${custId}/extract`, { method: 'POST', headers, body: JSON.stringify({ text }) })
           .then(r => r.json()).then(j => {
             const points: string[] = Array.isArray(j?.points) ? j.points : []
-            if (points.length) return fetch(`${APP_URL}/api/org/customers/${custId}/notes`, { method: 'POST', headers, body: JSON.stringify({ contents: points }) })
+            if (points.length) return apiFetch(`/api/org/customers/${custId}/notes`, { method: 'POST', headers, body: JSON.stringify({ contents: points }) })
           }).catch(() => undefined)
       }
     })
@@ -446,7 +446,7 @@ export default function ChatScreen() {
     if (!headers) { Alert.alert('请先登录'); return }
     setSinking(true)
     try {
-      const r = await fetch(`${APP_URL}/api/org/knowhow/extract`, { method: 'POST', headers, body: JSON.stringify({ text }) })
+      const r = await apiFetch('/api/org/knowhow/extract', { method: 'POST', headers, body: JSON.stringify({ text }) })
       const j = await r.json().catch(() => ({}))
       if (j?.ok) {
         if (convId) sunkKnowhowRef.current.add(convId)
@@ -460,7 +460,7 @@ export default function ChatScreen() {
     setShowCustPicker(true)
     const headers = await bearerHeaders()
     if (!headers) return
-    fetch(`${APP_URL}/api/org/customers`, { headers })
+    apiFetch('/api/org/customers', { headers })
       .then(r => r.json())
       .then(j => setCustomers((Array.isArray(j?.customers) ? j.customers : []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }))))
       .catch(() => undefined)
@@ -589,7 +589,7 @@ export default function ChatScreen() {
     if ((f.size ?? 0) > 4 * 1024 * 1024) {
       // >4MB 直传 /api/extract 会撞 Vercel 平台 ~4.5MB 请求体上限(平台层 413,到不了代码)。
       // 与网页版同方案:签名直传存储 → 按 storagePath 解析(2026-07-18 补齐,此前必失败)。
-      const ur = await fetch(`${APP_URL}/api/extract/upload-url`, {
+      const ur = await apiFetch('/api/extract/upload-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ name: f.name, size: f.size ?? 0 }),
@@ -603,7 +603,7 @@ export default function ChatScreen() {
         body: fileBlob,
       })
       if (!put.ok) throw new Error(`File upload failed (${put.status}), please retry.`)
-      res = await fetch(`${APP_URL}/api/extract`, {
+      res = await apiFetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ storagePath: uj.path, name: f.name }),
@@ -616,7 +616,7 @@ export default function ChatScreen() {
         type: f.mimeType ?? 'application/octet-stream',
       } as unknown as Blob)
       fd.append('name', f.name)
-      res = await fetch(`${APP_URL}/api/extract`, {
+      res = await apiFetch('/api/extract', {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}` },
         body: fd,
@@ -947,7 +947,7 @@ export default function ChatScreen() {
           </TouchableOpacity>
           {showExternalBilling && (
             <TouchableOpacity
-              onPress={() => Linking.openURL('https://app.lanwealth.com/dashboard/billing')}
+              onPress={() => Linking.openURL(`${getBase()}/dashboard/billing`)}
               style={[s.iconBtn, { paddingHorizontal: 10 }]} activeOpacity={0.7}
             >
               <Text style={[s.iconBtnText, { color: C.teal, fontSize: 12 }]}>充值 +</Text>
