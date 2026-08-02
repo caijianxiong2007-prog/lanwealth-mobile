@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Stack }                       from 'expo-router'
 import { StatusBar }                   from 'expo-status-bar'
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context'
 import { getSession, signInAsGuest, supabase } from '../lib/supabase'
 import { useRouter, useSegments }      from 'expo-router'
 import { ShareIntentProvider }         from 'expo-share-intent'
@@ -62,9 +63,11 @@ export default function RootLayout() {
   if (!ready) return null
 
   return (
-    <ShareIntentProvider options={{ debug: false, resetOnBackground: false, scheme: 'lanwealth' }}>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false }} />
-    </ShareIntentProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <ShareIntentProvider options={{ debug: false, resetOnBackground: false, scheme: 'lanwealth' }}>
+        <StatusBar style="light" />
+        <Stack screenOptions={{ headerShown: false }} />
+      </ShareIntentProvider>
+    </SafeAreaProvider>
   )
 }

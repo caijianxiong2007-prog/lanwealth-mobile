@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView,
          Linking, Image, TextInput, Alert, Platform } from 'react-native'
 import { useRouter, type Href } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase }  from '../../lib/supabase'
@@ -11,6 +12,7 @@ const C = { bg:'#0A0A0B', bg2:'#111113', bg3:'#18181C', border:'#222228', border
 
 export default function SettingsScreen() {
   const router = useRouter()
+  const insets = useSafeAreaInsets()   // 状态栏/刘海安全区
   const [apiUrl,  setApiUrl]  = useState('')
   const [apiKey,  setApiKey]  = useState('')
   const [saved,   setSaved]   = useState(false)
@@ -89,7 +91,7 @@ export default function SettingsScreen() {
   }
 
   return (
-    <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 50 }}>
+    <ScrollView style={[s.container, { paddingTop: insets.top + 12 }]} contentContainerStyle={{ paddingBottom: 50 }}>
 
       {/* Brand header */}
       <View style={s.brandHeader}>

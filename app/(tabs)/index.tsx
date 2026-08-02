@@ -11,6 +11,7 @@ import * as ImagePicker    from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem     from 'expo-file-system'
 import { useShareIntentContext } from 'expo-share-intent'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Markdown from 'react-native-markdown-display'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { supabase }                  from '../../lib/supabase'
@@ -159,6 +160,7 @@ const STT_LANG: Record<string, string> = {
 
 export default function ChatScreen() {
   const router = useRouter()
+  const insets = useSafeAreaInsets()   // 状态栏/刘海安全区(华为等高状态栏机型顶部遮挡修复)
   const { hasShareIntent, shareIntent, resetShareIntent, error: shareIntentError } = useShareIntentContext()
   const [guest,       setGuest]       = useState(false)   // anonymous user → free models only
   const [entitled,    setEntitled]    = useState(false)   // paid on web / active paid plan → full models on iOS (Guideline 3.1.3)
@@ -929,7 +931,7 @@ export default function ChatScreen() {
     >
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 8 }]}>
         {/* Left: 品牌行(对齐网页版:logo + Bayze 字标;模型选择移到第二行) */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
           <View style={s.headerLogo}>
@@ -1452,7 +1454,7 @@ export default function ChatScreen() {
 // ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   // Header
-  header:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:14, paddingTop: Platform.OS==='ios' ? 54 : 14, paddingBottom:8, backgroundColor:C.bg2 },
+  header:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:14, paddingBottom:8, backgroundColor:C.bg2 },
   brandText:    { color:C.text, fontSize:17, fontWeight:'800', letterSpacing:0.3 },
   headerSub:    { flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:14, paddingBottom:10, backgroundColor:C.bg2, borderBottomWidth:1, borderBottomColor:C.border },
   newChatBtn:   { paddingHorizontal:12, paddingVertical:7, borderRadius:8, borderWidth:1, borderColor:C.border2, backgroundColor:C.bg3 },
