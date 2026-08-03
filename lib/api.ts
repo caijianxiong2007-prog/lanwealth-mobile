@@ -49,7 +49,7 @@ export const MODELS = [
   { id: 'gemini-3.6-flash',  name: 'Gemini 3.6 Flash',  tag: 'Advanced',  group: 'Google',    free: false, vision: true  },
   { id: 'claude-haiku-4-5',  name: 'Claude Haiku 4.5',  tag: 'Fast',      group: 'Claude',    free: false, vision: true  },
   { id: 'claude-sonnet-5',   name: 'Claude Sonnet 5',   tag: 'Balanced',  group: 'Claude',    free: false, vision: true  },
-  { id: 'claude-opus-4-8',   name: 'Claude Opus 4.8',   tag: 'Advanced',  group: 'Claude',    free: false, vision: true  },
+  { id: 'claude-opus-5',     name: 'Claude Opus 5',     tag: 'Advanced',  group: 'Claude',    free: false, vision: true  },
   { id: 'gpt-5.4-mini',      name: 'GPT-5.4 mini',      tag: 'Fast',      group: 'OpenAI',    free: false, vision: true  },
   { id: 'gpt-5.6-terra',     name: 'GPT-5.6 Terra',     tag: 'Balanced',  group: 'OpenAI',    free: false, vision: true  },
   { id: 'gpt-5.6-sol',       name: 'GPT-5.6 Sol',       tag: 'Advanced',  group: 'OpenAI',    free: false, vision: true  },
