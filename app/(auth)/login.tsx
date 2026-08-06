@@ -4,6 +4,8 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
 import { useRouter, type Href } from 'expo-router'
 import AsyncStorage          from '@react-native-async-storage/async-storage'
 import { supabase, signInAsGuest } from '../../lib/supabase'
+import { getCachedConfig, refreshConfig } from '../../lib/appConfig'
+import PhoneAuth from '../../components/PhoneAuth'
 
 // New routes (signup/forgot) — typed-routes cache regenerates on dev/EAS build
 const R = (p: string) => p as Href
@@ -19,6 +21,9 @@ export default function LoginScreen() {
   const [guestLoading, setGuestLoading] = useState(false)
   const [error,   setError]   = useState('')
   const [remember, setRemember] = useState(true)
+  // 手机号登录:入口开关由服务端 /api/app-config 下发(开/关不用重新上架)
+  const [phoneEnabled, setPhoneEnabled] = useState(false)
+  const [mode, setMode] = useState<'email' | 'phone'>('email')
 
   // 记住账号:预填上次登录邮箱(只记标识,不存密码)
   useEffect(() => {
@@ -27,8 +32,22 @@ export default function LoginScreen() {
         const on = (await AsyncStorage.getItem('lw_remember')) !== '0'   // 默认开
         setRemember(on)
         if (on) { const e = await AsyncStorage.getItem('lw_acct_email'); if (e) setEmail(e) }
+        // 上次用手机号登录的,直接停在手机号 Tab
+        if (on && (await AsyncStorage.getItem('lw_acct_method')) === 'phone') setMode('phone')
       } catch { /* ignore */ }
     })()
+  }, [])
+
+  // 先用缓存立即渲染(避免 Tab 迟到几百毫秒才蹦出来),再后台刷新
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const cached = await getCachedConfig()
+      if (alive) setPhoneEnabled(cached.phoneAuth)
+      const fresh = await refreshConfig()
+      if (alive && fresh) setPhoneEnabled(fresh.phoneAuth)
+    })()
+    return () => { alive = false }
   }, [])
 
   async function signIn() {
@@ -41,6 +60,7 @@ export default function LoginScreen() {
       await AsyncStorage.setItem('lw_remember', remember ? '1' : '0')
       if (remember) await AsyncStorage.setItem('lw_acct_email', email.trim())
       else await AsyncStorage.removeItem('lw_acct_email')
+      await AsyncStorage.setItem('lw_acct_method', 'email')
     } catch { /* ignore */ }
   }
 
@@ -77,6 +97,29 @@ export default function LoginScreen() {
 
         {/* Card */}
         <View style={s.card}>
+
+          {/* 邮箱 / 手机号 切换(手机号入口由服务端下发开关控制) */}
+          {phoneEnabled ? (
+            <View style={s.tabRow}>
+              {(['email', 'phone'] as const).map(m => (
+                <TouchableOpacity
+                  key={m}
+                  style={[s.tab, mode === m && s.tabOn]}
+                  onPress={() => { setMode(m); setError('') }}
+                  activeOpacity={.7}
+                >
+                  <Text style={[s.tabText, mode === m && s.tabTextOn]}>
+                    {m === 'email' ? '邮箱 Email' : '手机号 Phone'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+
+          {mode === 'phone' ? (
+            <PhoneAuth remember={remember} onDone={() => router.replace('/(tabs)')} />
+          ) : (
+          <>
           <Text style={s.label}>Email</Text>
           <TextInput
             style={s.input} value={email} onChangeText={setEmail}
@@ -122,6 +165,8 @@ export default function LoginScreen() {
           >
             <Text style={s.btnText}>{loading ? 'Signing in…' : 'Sign in →'}</Text>
           </TouchableOpacity>
+          </>
+          )}
         </View>
 
         {/* Divider */}
@@ -177,6 +222,12 @@ const s = StyleSheet.create({
   rememberText:{ fontSize:13, color:C.muted },
   hint:        { marginTop:20, fontSize:12, color:C.muted },
   forgotLink:  { fontSize:12, color:C.teal, opacity:.85 },
+
+  tabRow:      { flexDirection:'row', gap:8, marginBottom:18 },
+  tab:         { flex:1, paddingVertical:9, borderRadius:8, borderWidth:1, borderColor:C.border2, alignItems:'center', backgroundColor:'transparent' },
+  tabOn:       { borderColor:C.teal, backgroundColor:C.teal3 },
+  tabText:     { fontSize:13, color:C.muted, fontWeight:'600' },
+  tabTextOn:   { color:C.teal },
 
   dividerRow:  { flexDirection:'row', alignItems:'center', gap:10, width:'100%', maxWidth:360, marginTop:22 },
   dividerLine: { flex:1, height:1, backgroundColor:C.border },

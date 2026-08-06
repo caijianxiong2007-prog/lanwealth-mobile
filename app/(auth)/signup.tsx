@@ -1,8 +1,10 @@
-import { useState }         from 'react'
+import { useState, useEffect } from 'react'
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
          KeyboardAvoidingView, Platform, Image } from 'react-native'
 import { useRouter }         from 'expo-router'
 import { supabase }          from '../../lib/supabase'
+import { getCachedConfig, refreshConfig } from '../../lib/appConfig'
+import PhoneAuth from '../../components/PhoneAuth'
 
 const C = { bg:'#0A0A0B', bg2:'#111113', bg3:'#18181C', border:'#222228', border2:'#2C2C35', text:'#E4E4EA', muted:'#606070', teal:'#1AEBA8', teal2:'#0F8C63', teal3:'#083D2B', red:'#E8453C' }
 
@@ -15,6 +17,20 @@ export default function SignupScreen() {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
   const [notice,  setNotice]  = useState('')
+  // 手机号注册:入口开关由服务端 /api/app-config 下发(与登录页同一开关)
+  const [phoneEnabled, setPhoneEnabled] = useState(false)
+  const [mode, setMode] = useState<'email' | 'phone'>('email')
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const cached = await getCachedConfig()
+      if (alive) setPhoneEnabled(cached.phoneAuth)
+      const fresh = await refreshConfig()
+      if (alive && fresh) setPhoneEnabled(fresh.phoneAuth)
+    })()
+    return () => { alive = false }
+  }, [])
 
   async function signUp() {
     if (!email || !pass) return
@@ -51,6 +67,29 @@ export default function SignupScreen() {
 
         {/* Card */}
         <View style={s.card}>
+
+          {/* 邮箱 / 手机号 切换。手机号走验证码**登注合一**,与登录页是同一个组件 */}
+          {phoneEnabled ? (
+            <View style={s.tabRow}>
+              {(['email', 'phone'] as const).map(m => (
+                <TouchableOpacity
+                  key={m}
+                  style={[s.tab, mode === m && s.tabOn]}
+                  onPress={() => { setMode(m); setError(''); setNotice('') }}
+                  activeOpacity={.7}
+                >
+                  <Text style={[s.tabText, mode === m && s.tabTextOn]}>
+                    {m === 'email' ? '邮箱 Email' : '手机号 Phone'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+
+          {mode === 'phone' ? (
+            <PhoneAuth onDone={() => router.replace('/(tabs)')} />
+          ) : (
+          <>
           <Text style={s.label}>Email</Text>
           <TextInput
             style={s.input} value={email} onChangeText={setEmail}
@@ -91,6 +130,8 @@ export default function SignupScreen() {
           >
             <Text style={s.btnText}>{loading ? 'Creating…' : 'Create account →'}</Text>
           </TouchableOpacity>
+          </>
+          )}
         </View>
 
         <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginTop:20 }}>
@@ -105,6 +146,11 @@ export default function SignupScreen() {
 }
 
 const s = StyleSheet.create({
+  tabRow:      { flexDirection:'row', gap:8, marginBottom:18 },
+  tab:         { flex:1, paddingVertical:9, borderRadius:8, borderWidth:1, borderColor:C.border2, alignItems:'center', backgroundColor:'transparent' },
+  tabOn:       { borderColor:C.teal, backgroundColor:C.teal3 },
+  tabText:     { fontSize:13, color:C.muted, fontWeight:'600' },
+  tabTextOn:   { color:C.teal },
   container:   { flexGrow:1, backgroundColor:C.bg, alignItems:'center', justifyContent:'center', padding:24 },
   logoWrap:    { alignItems:'center', marginBottom:32 },
   logoImgWrap: { width:72, height:72, borderRadius:18, backgroundColor:'rgba(255,255,255,0.92)', alignItems:'center', justifyContent:'center', marginBottom:14, padding:7 },
