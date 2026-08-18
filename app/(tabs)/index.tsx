@@ -15,7 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Markdown from 'react-native-markdown-display'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import { supabase }                  from '../../lib/supabase'
-import { apiFetch, getBase, streamChat, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
+import { apiFetch, getBase, streamChat, stopStream, saveToKnowledge, USER_STOP, MODELS, CHAT_LANGS, messageText, contentImages } from '../../lib/api'
+import * as ImageManipulator from 'expo-image-manipulator'
 import type { Message, ContentPart } from '../../lib/api'
 import { getSecret }                 from '../../lib/secureSettings'
 import {
@@ -193,6 +194,7 @@ export default function ChatScreen() {
   const activeConvIdRef = useRef<string | null>(null)
   const userIdRef = useRef<string | null>(null)
   const shareIntentBusyRef = useRef(false)
+  const sendBusyRef = useRef(false)   // 同步互斥:send 守卫读的是渲染态 streaming,置位前有 await 空窗
 
   const curModel = MODELS.find(m => m.id === model) ?? MODELS[0]
   const curLang  = CHAT_LANGS.find(l => l.code === responseLang) ?? CHAT_LANGS[0]
@@ -631,14 +633,16 @@ export default function ChatScreen() {
 
   async function addDocument(f: DocumentPicker.DocumentPickerAsset): Promise<boolean> {
     const isDoc = isDocFile(f)
-    if ((f.size ?? 0) > (isDoc ? MAX_DOC_BYTES : MAX_INLINE_TEXT_CHARS)) {
+    let sizeBytes = f.size ?? 0
+    if (!sizeBytes && f.uri) {
+      // 分享进来的文件常不带 size(undefined→0 会骗过闸门)→ 问文件系统要,拿不到按 0 放行
+      try { const info = await FileSystem.getInfoAsync(f.uri, { size: true }); if (info.exists) sizeBytes = info.size ?? 0 } catch {}
+    }
+    if (sizeBytes > (isDoc ? MAX_DOC_BYTES : MAX_INLINE_TEXT_CHARS)) {
       Alert.alert('File too large', isDoc ? 'Please attach a document under 25 MB.' : 'Please attach a text or code file under ~200 KB.')
       return false
     }
-    if (!isDoc && !isTextLikeFile(f)) {
-      Alert.alert('Unsupported file', 'Bayze can read PDF, Word, PowerPoint, Excel (.xlsx), CSV, Markdown, JSON, XML and code/text files.')
-      return false
-    }
+    const knownTextLike = isTextLikeFile(f)
     try {
       let text = ''
       if (isDoc) {
@@ -646,7 +650,18 @@ export default function ChatScreen() {
         if (!session) { Alert.alert('Sign in required', 'Please sign in before attaching documents.'); return false }
         text = await extractDocumentText(f, session.access_token)
       } else {
-        text = await FileSystem.readAsStringAsync(f.uri, { encoding: FileSystem.EncodingType.UTF8 })
+        // 备忘录等 App 分享的文本附件常无后缀/无 MIME:白名单外先按 UTF-8 嗅探,
+        // 能读出可读文本就收下;读不出(二进制)才拒。
+        try {
+          text = await FileSystem.readAsStringAsync(f.uri, { encoding: FileSystem.EncodingType.UTF8 })
+        } catch {
+          text = ''
+        }
+        const looksReadable = text.trim().length > 0 && !text.slice(0, 2000).includes('\u0000')
+        if (!knownTextLike && !looksReadable) {
+          Alert.alert('Unsupported file', 'Bayze can read PDF, Word, PowerPoint, Excel (.xlsx), CSV, Markdown, JSON, XML, images and text files.')
+          return false
+        }
       }
       if (text.length > MAX_INLINE_TEXT_CHARS) text = `${text.slice(0, MAX_INLINE_TEXT_CHARS)}\n\n[File was truncated to fit the chat context.]`
       if (!text.trim()) { Alert.alert('Empty file', 'This file does not contain readable text.'); return false }
@@ -680,29 +695,104 @@ export default function ChatScreen() {
         setError('')
 
         const sharedText = (shareIntent.text || shareIntent.webUrl || '').trim()
-        if (sharedText) setInput(previous => previous.trim() ? `${previous}\n${sharedText}` : sharedText)
+        const sharedFiles = shareIntent.files ?? []
 
-        for (const file of shareIntent.files ?? []) {
-          const name = file.fileName || file.path.split('/').pop() || 'shared-file'
-          const mime = (file.mimeType || '').toLowerCase()
-          const extension = extOf(name || file.path)
-          if (mime.startsWith('image/') || IMAGE_FILE_EXTS.has(extension)) {
-            await addImage({
-              uri: file.path,
-              fileName: name,
-              mimeType: mime || undefined,
-              width: file.width ?? 0,
-              height: file.height ?? 0,
-            } as ImagePicker.ImagePickerAsset)
-          } else {
-            await addDocument({
-              uri: file.path,
-              name,
-              mimeType: mime || undefined,
-              size: file.size ?? undefined,
-            })
+        // 原行为:文本进输入框、附件挂到对话(1.3.4 起作为「加入对话」分支)
+        const attachToChat = async () => {
+          if (sharedText) setInput(previous => previous.trim() ? `${previous}\n${sharedText}` : sharedText)
+          for (const file of sharedFiles) {
+            const name = file.fileName || file.path.split('/').pop() || 'shared-file'
+            const mime = (file.mimeType || '').toLowerCase()
+            const extension = extOf(name || file.path)
+            if (mime.startsWith('image/') || IMAGE_FILE_EXTS.has(extension)) {
+              await addImage({
+                uri: file.path,
+                fileName: name,
+                mimeType: mime || undefined,
+                width: file.width ?? 0,
+                height: file.height ?? 0,
+              } as ImagePicker.ImagePickerAsset)
+            } else {
+              await addDocument({
+                uri: file.path,
+                name,
+                mimeType: mime || undefined,
+                size: file.size ?? undefined,
+              })
+            }
           }
         }
+
+        // 1.3.4-C:存入知识库 —— 文档/图片走 /api/extract 抽文本(图片=OCR),
+        // 文本附件直读;逐项 POST /api/knowledge(企业库优先,不在企业自动落个人库)。
+        const saveAllToKnowledge = async () => {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session) { Alert.alert('请先登录', '登录后才能存入知识库。'); return }
+          let saved = 0
+          let savedTo: 'org' | 'personal' = 'org'
+          const failures: string[] = []
+          // 逐项容错:一张无文字的风景照(422)或一张超限图(413)不腰斩整批,失败逐项如实汇报
+          for (const file of sharedFiles) {
+            const name = file.fileName || file.path.split('/').pop() || 'shared-file'
+            try {
+              const mime = (file.mimeType || '').toLowerCase()
+              const extension = extOf(name || file.path)
+              let text = ''
+              const isImage = mime.startsWith('image/') || IMAGE_FILE_EXTS.has(extension)
+              if (isImage && (extension === 'heic' || extension === 'heif' || mime === 'image/heic' || mime === 'image/heif')) {
+                // 服务端 OCR 只收 png/jpg/webp;iPhone 备忘录/相册默认 HEIC → 先转 JPEG
+                const jpeg = await ImageManipulator.manipulateAsync(file.path, [], { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG })
+                text = await extractDocumentText({ uri: jpeg.uri, name: `${name.replace(/\.(heic|heif)$/i, '')}.jpg`, mimeType: 'image/jpeg' }, session.access_token)
+              } else if (isImage || DOC_FILE_EXTS.has(extension) || DOC_MIME_TYPES.has(mime)) {
+                text = await extractDocumentText({ uri: file.path, name, mimeType: mime || undefined, size: file.size ?? undefined }, session.access_token)
+              } else {
+                text = await FileSystem.readAsStringAsync(file.path, { encoding: FileSystem.EncodingType.UTF8 }).catch(() => '')
+              }
+              if (!text.trim()) { failures.push(`${name}:未读出文字`); continue }
+              // 客户端截断超长文本:Vercel 请求体上限 4.5MB,超限会变成一个没头没脑的网络错误
+              savedTo = await saveToKnowledge({ accessToken: session.access_token, name, text: text.slice(0, 800_000) })
+              saved++
+            } catch (err) {
+              failures.push(`${name}:${err instanceof Error ? err.message : '失败'}`)
+            }
+          }
+          if (sharedText) {
+            try {
+              // 名字带时间戳:知识库同名即覆盖,两条开头相同的笔记不能互相顶掉
+              const stamp = new Date().toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+              savedTo = await saveToKnowledge({
+                accessToken: session.access_token,
+                name: `${sharedText.replace(/\s+/g, ' ').slice(0, 24) || '手机分享'} · ${stamp}`,
+                text: sharedText.slice(0, 800_000),
+              })
+              saved++
+            } catch (err) {
+              failures.push(`分享文字:${err instanceof Error ? err.message : '失败'}`)
+            }
+          }
+          if (saved > 0 && failures.length === 0) {
+            Alert.alert('已存入知识库', `${saved} 项已存入${savedTo === 'org' ? '企业' : '个人'}知识库,AI 对话随时可引用。`)
+          } else if (saved > 0) {
+            Alert.alert('部分存入', `${saved} 项已存入${savedTo === 'org' ? '企业' : '个人'}知识库;未成:\n${failures.slice(0, 4).join('\n')}`)
+          } else {
+            Alert.alert('没有存入任何内容', failures.length ? failures.slice(0, 4).join('\n') : '分享的内容里没有读出可保存的文本。')
+          }
+        }
+
+        // 短文本且无附件:维持老行为直接进输入框;否则弹去向选择
+        if (sharedFiles.length === 0 && sharedText.length < 80) {
+          if (sharedText) setInput(previous => previous.trim() ? `${previous}\n${sharedText}` : sharedText)
+          return
+        }
+        const summary = [
+          sharedFiles.length ? `${sharedFiles.length} 个附件` : '',
+          sharedText ? '一段文字' : '',
+        ].filter(Boolean).join(' + ')
+        Alert.alert('收到分享内容', `${summary},要怎么处理?`, [
+          { text: '加入对话', onPress: () => { void attachToChat() } },
+          { text: '存入知识库', onPress: () => { void saveAllToKnowledge() } },
+          { text: '取消', style: 'cancel' },
+        ])
       } finally {
         resetShareIntent()
         shareIntentBusyRef.current = false
@@ -799,11 +889,12 @@ export default function ChatScreen() {
 
   const send = useCallback(async (text?: string) => {
     const trimmed = (text ?? input).trim()
-    if ((!trimmed && attachments.length === 0) || streaming) return
+    if ((!trimmed && attachments.length === 0) || streaming || sendBusyRef.current) return
+    sendBusyRef.current = true
     setError('')
 
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { setError('Not authenticated'); return }
+    if (!session) { setError('Not authenticated'); sendBusyRef.current = false; return }
 
     setInput(''); Keyboard.dismiss()
     try { ExpoSpeechRecognitionModule.stop() } catch {} setListening(false)
@@ -859,10 +950,23 @@ export default function ChatScreen() {
         setMessages(finalMessages)
         listRef.current?.scrollToEnd({ animated: false })
       }
+      // 200+空流(服务端被强杀/空 SSE):不留会被渲染成"生成中"的空气泡,如实报错(2026-08-18 事故整改)
+      const lastMessage = finalMessages[finalMessages.length - 1]
+      if (!messageText(lastMessage?.content ?? '').trim()) {
+        setError('模型没有返回内容(可能任务过大超时)。请重试,长文任务建议分段提问。')
+        finalMessages = baseMessages
+        setMessages(finalMessages)
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error')
-      finalMessages = baseMessages
-      setMessages(finalMessages)
+      // 统一语义:有部分正文就保留(服务端已按流出内容计费,不白丢),空槽才撤;仅错误提示不同
+      const lastMessage = finalMessages[finalMessages.length - 1]
+      const hasPartial = !!messageText(lastMessage?.content ?? '').trim()
+      if (!(err instanceof Error && err.message === USER_STOP)) {
+        setError(err instanceof Error
+          ? (hasPartial ? `${err.message}(已保留生成的部分)` : err.message)
+          : 'Error')
+      }
+      if (!hasPartial) { finalMessages = baseMessages; setMessages(finalMessages) }
     } finally {
       persistConversation({
         id: conversationId,
@@ -872,6 +976,7 @@ export default function ChatScreen() {
         updatedAt: Date.now(),
       })
       setStreaming(false)
+      sendBusyRef.current = false
     }
   }, [input, streaming, messages, model, responseLang, customApiUrl, customApiKey, convTitle, attachments, activeConvId, chatScope, inOrg, customerId])
 
@@ -1176,13 +1281,14 @@ export default function ChatScreen() {
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[s.sendBtn, ((!input.trim() && attachments.length === 0) || streaming) && s.sendBtnDisabled]}
-          onPress={() => send()}
-          disabled={(!input.trim() && attachments.length === 0) || streaming}
+          style={[s.sendBtn, !streaming && !input.trim() && attachments.length === 0 && s.sendBtnDisabled]}
+          onPress={() => { if (streaming) stopStream(); else void send() }}
+          disabled={!streaming && !input.trim() && attachments.length === 0}
           activeOpacity={0.8}
+          accessibilityLabel={streaming ? '停止生成' : '发送'}
         >
           {streaming
-            ? <ActivityIndicator size="small" color="#050505" />
+            ? <Text style={{ color: '#050505', fontSize: 15, fontWeight: '800' }}>■</Text>
             : <Text style={s.sendArrow}>↑</Text>
           }
         </TouchableOpacity>

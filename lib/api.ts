@@ -107,7 +107,19 @@ interface ChatOptions {
   customerId?:   string                   // 关联客户 — 服务端注入该客户档案+记忆(过客户 ACL)
 }
 
+// ── 停止生成(2026-08-18 事故整改):XHR 挂在模块级,发送键流式中变停止按钮时调用。
+//    userStopped 让 send() 把中止与真错误区分开 —— 用户主动停要保留已生成的部分正文。
+let activeXhr: XMLHttpRequest | null = null
+let userStopped = false
+export const USER_STOP = '__user_stop__'
+const STALL_MSG = '连接长时间无响应,已中断。请重试。'
+export function stopStream() {
+  userStopped = true
+  try { activeXhr?.abort() } catch {}
+}
+
 export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
+  userStopped = false   // 每次新流复位一次;attempt() 内不再复位(换域重试须尊重窗口内的停止)
   const { accessToken, model, messages, responseLang, customApiUrl, customApiKey, scope, customerId } = opts
 
   // Prepend system language instruction if set
@@ -142,9 +154,24 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
     let wake: (() => void) | null = null
     const bump = () => { const w = wake; wake = null; w?.() }
 
+    if (userStopped) throw new Error(USER_STOP)   // 换域窗口内点了停止:不再起第二跳
     const xhr = new XMLHttpRequest()
+    activeXhr = xhr
     xhr.open('POST', url)
     for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v)
+
+    // 停滞看门狗:330s(> 服务端 maxDuration 300s)无任何进展 = 连接静默死亡。
+    // 不用 xhr.timeout —— 那是总时长上限,会腰斩正常的长生成;这里每次进展都重置。
+    let stallTimer: ReturnType<typeof setTimeout> | undefined
+    const armStall = () => {
+      if (stallTimer) clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => {
+        failed = new Error(STALL_MSG)
+        try { xhr.abort() } catch {}
+        finished = true; bump()
+      }, 330_000)
+    }
+    armStall()
 
     let seen = 0
     let buf  = ''
@@ -165,8 +192,9 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
       }
       bump()
     }
-    xhr.onprogress = () => consumeResponse()
+    xhr.onprogress = () => { armStall(); consumeResponse() }
     xhr.onload = () => {
+      if (stallTimer) clearTimeout(stallTimer)
       if (xhr.status >= 400) {
         let msg = `HTTP ${xhr.status}`
         try { msg = (JSON.parse(xhr.responseText) as { error?: string }).error ?? msg } catch {}
@@ -176,7 +204,22 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
       }
       finished = true; bump()
     }
-    xhr.onerror = () => { failed = new Error('Network request failed'); finished = true; bump() }
+    xhr.onerror = () => {
+      if (stallTimer) clearTimeout(stallTimer)
+      failed = failed ?? new Error('Network request failed')
+      finished = true; bump()
+    }
+    xhr.onabort = () => {
+      if (stallTimer) clearTimeout(stallTimer)
+      if (userStopped) failed = failed ?? new Error(USER_STOP)
+      finished = true; bump()
+    }
+    // RN 的 OS 级空闲超时走 'timeout' 事件而非 'error'(iOS kCFURLErrorTimedOut)——不接就静默挂死
+    xhr.ontimeout = () => {
+      if (stallTimer) clearTimeout(stallTimer)
+      failed = failed ?? new Error('Network request failed')
+      finished = true; bump()
+    }
     xhr.send(body)
 
     while (true) {
@@ -196,9 +239,27 @@ export async function* streamChat(opts: ChatOptions): AsyncGenerator<string> {
   try {
     for await (const delta of attempt(`${base}/api/chat`)) { yielded = true; yield delta }
   } catch (err) {
-    if (yielded || !(err instanceof Error) || !/Network request failed/i.test(err.message)) throw err
+    if (yielded || !(err instanceof Error) || err.message === USER_STOP) throw err
+    if (!/Network request failed/i.test(err.message) && err.message !== STALL_MSG) throw err
     await markBaseBad()
     const next = await resolveBase()
     yield* attempt(`${next}/api/chat`)
   }
+}
+
+// ── 知识库入库(1.3.4-C):分享/附件内容一键存入知识库。scope=org 任何企业成员可传;
+//    未加入企业(403)自动落个人库。文本须已抽取(文档走 /api/extract 同一条路)。
+export async function saveToKnowledge(opts: { accessToken: string; name: string; text: string }): Promise<'org' | 'personal'> {
+  const { accessToken, name, text } = opts
+  const post = (scope?: 'org') => apiFetch('/api/knowledge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ name, text, ...(scope ? { scope } : {}) }),
+  })
+  let savedTo: 'org' | 'personal' = 'org'
+  let res = await post('org')
+  if (res.status === 403) { savedTo = 'personal'; res = await post(undefined) }   // 不在企业 → 存个人库
+  const json = await res.json().catch(() => ({})) as { error?: string }
+  if (!res.ok) throw new Error(json.error ?? `保存失败(${res.status})`)
+  return savedTo
 }
