@@ -15,8 +15,10 @@ const KEY = 'app_config_v1'
 const TTL_MS = 30 * 60 * 1000        // 后台刷新节流:30 分钟
 const TIMEOUT = 4000
 
-export type AppConfig = { phoneAuth: boolean }
-const DEFAULT: AppConfig = { phoneAuth: false }
+// tools:「Tools」实用工具 Tab 是否显示。与 phoneAuth 相反,它**默认开**——该 Tab 只是打开
+// 网页版工具的入口,恒安全;仅当服务端显式下发 tools:false(MOBILE_TOOLS_TAB=0)才隐藏。
+export type AppConfig = { phoneAuth: boolean; tools: boolean }
+const DEFAULT: AppConfig = { phoneAuth: false, tools: true }
 
 type Cached = { cfg: AppConfig; fetchedAt: number }
 
@@ -28,7 +30,7 @@ async function readCache(): Promise<Cached | null> {
     const c = j?.cfg as Record<string, unknown> | undefined
     if (!c) return null
     return {
-      cfg: { phoneAuth: c.phoneAuth === true },
+      cfg: { phoneAuth: c.phoneAuth === true, tools: c.tools !== false },
       fetchedAt: typeof j.fetchedAt === 'number' ? j.fetchedAt : 0,
     }
   } catch { return null }
@@ -58,8 +60,9 @@ export async function refreshConfig(): Promise<AppConfig | null> {
 
     const j = await r.json().catch(() => null) as Record<string, unknown> | null
     if (!j) return null
-    // 老服务端不下发 phoneAuth → undefined → 按关闭处理(向后兼容,不会误开)
-    const cfg: AppConfig = { phoneAuth: j.phoneAuth === true }
+    // phoneAuth:老服务端不下发 → undefined → 按关闭(不会误开)。
+    // tools:反向,老服务端不下发 → 显示(默认开);仅显式 false 才隐藏。
+    const cfg: AppConfig = { phoneAuth: j.phoneAuth === true, tools: j.tools !== false }
     await AsyncStorage.setItem(KEY, JSON.stringify({ cfg, fetchedAt: Date.now() })).catch(() => undefined)
     return cfg
   } catch { return null }
