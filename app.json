@@ -2,7 +2,7 @@
   "expo": {
     "name": "Bayze",
     "slug": "lanwealth-mobile",
-    "version": "1.3.4",
+    "version": "1.3.5",
     "orientation": "portrait",
     "runtimeVersion": { "policy": "fingerprint" },
     "updates": {
