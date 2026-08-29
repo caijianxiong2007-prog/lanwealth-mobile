@@ -12,6 +12,7 @@ export default function TabLayout() {
       tabBarLabelStyle:   { fontSize: 11 },
     }}>
       <Tabs.Screen name="index"    options={{ title: 'Chat',     tabBarIcon: ({ color }) => <TabIcon name="chat"     color={color} /> }} />
+      <Tabs.Screen name="tools"    options={{ title: 'Tools',    tabBarIcon: ({ color }) => <TabIcon name="tools"    color={color} /> }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: ({ color }) => <TabIcon name="settings" color={color} /> }} />
     </Tabs>
   )
@@ -19,7 +20,7 @@ export default function TabLayout() {
 
 function TabIcon({ name, color }: { name: string; color: string }) {
   // Simple SVG-less icons via text
-  const icons: Record<string, string> = { chat: '💬', settings: '⚙️' }
+  const icons: Record<string, string> = { chat: '💬', tools: '🧰', settings: '⚙️' }
   const { Text } = require('react-native')
   return <Text style={{ fontSize: 20 }}>{icons[name] ?? '·'}</Text>
 }
