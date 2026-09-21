@@ -21,7 +21,7 @@ import type { Message, ContentPart } from '../../lib/api'
 import { getSecret }                 from '../../lib/secureSettings'
 import {
   createConversationId, deleteCloudConversation, fetchCloudConversations,
-  loadLocalConversations, mergeConversations, saveCloudConversation, saveCloudConversations, saveLocalConversations,
+  dropLegacyLocalStore, loadLocalConversations, mergeConversations, saveCloudConversation, saveCloudConversations, saveLocalConversations,
 } from '../../lib/conversations'
 import type { MobileConversation } from '../../lib/conversations'
 
@@ -208,11 +208,21 @@ export default function ChatScreen() {
   const freeOnly      = iosRestricted || guest
   const visibleModels = iosRestricted ? MODELS.filter(m => m.free) : MODELS
 
-  // Load local history first, then merge the signed-in user's cross-device cloud history.
+  // ⚠️ 顺序不能反:**先确定当前用户,再读本地仓**。
+  // 改这个顺序就是本次修复的核心 —— 原来是先 loadLocalConversations() 再 getUser(),
+  // 于是在一台被多人登录过的手机上,后来者会先把前一个人的会话读出来显示、
+  // 再当成"本地新增"整包同步进自己账号(2026-08-31 真实事故,18 条第三方经营数据外泄)。
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      loadLocalConversations(),
+    ;(async () => {
+      // 迁移前的全局仓:只删不读。内容云端全量都有,留着只会被下一个登录的人捡走。
+      await dropLegacyLocalStore()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (cancelled) return
+      userIdRef.current = user?.id ?? null
+      const uid = user?.id ?? ''
+      return Promise.all([
+      loadLocalConversations(uid),
       AsyncStorage.getItem('response_lang'),
       AsyncStorage.getItem('custom_api_url'),
       getSecret('custom_api_key'),
@@ -232,9 +242,6 @@ export default function ChatScreen() {
       if (localActive?.model) setModel(localActive.model)
       setHistoryLoading(false)
 
-      const { data: { user } } = await supabase.auth.getUser()
-      if (cancelled) return
-      userIdRef.current = user?.id ?? null
       if (user) {
         try {
           const cloud = await fetchCloudConversations(user.id)
@@ -264,10 +271,11 @@ export default function ChatScreen() {
             setMessages([])
             setConvTitle('')
           }
-          await saveLocalConversations(merged, activeConvIdRef.current)
+          await saveLocalConversations(userIdRef.current ?? '', merged, activeConvIdRef.current)
         } catch { /* keep local history available offline */ }
       }
-    }).catch(() => { if (!cancelled) setHistoryLoading(false) })
+    })
+    })().catch(() => { if (!cancelled) setHistoryLoading(false) })
     return () => { cancelled = true }
   }, [])
 
@@ -816,7 +824,7 @@ export default function ChatScreen() {
       .slice(0, 80)
     conversationsRef.current = next
     setConversations(next)
-    void saveLocalConversations(next, conversation.id)
+    void saveLocalConversations(userIdRef.current ?? '', next, conversation.id)
     const userId = userIdRef.current
     if (userId) void saveCloudConversation(userId, conversation).catch(() => undefined)
   }
@@ -834,7 +842,7 @@ export default function ChatScreen() {
     setAttachments([])
     setError('')
     setShowHistory(false)
-    void saveLocalConversations(conversationsRef.current, id)
+    void saveLocalConversations(userIdRef.current ?? '', conversationsRef.current, id)
     relock()
   }
 
@@ -853,7 +861,7 @@ export default function ChatScreen() {
     setAttachments([])
     setError('')
     setShowHistory(false)
-    void saveLocalConversations(conversationsRef.current, target.id)
+    void saveLocalConversations(userIdRef.current ?? '', conversationsRef.current, target.id)
     relock()
   }
 
@@ -874,7 +882,7 @@ export default function ChatScreen() {
       setInput('')
       setAttachments([])
     }
-    void saveLocalConversations(next, nextActiveId)
+    void saveLocalConversations(userIdRef.current ?? '', next, nextActiveId)
     const userId = userIdRef.current
     if (userId) void deleteCloudConversation(userId, id).catch(() => undefined)
     relock()
