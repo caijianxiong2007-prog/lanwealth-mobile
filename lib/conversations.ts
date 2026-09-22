@@ -18,10 +18,20 @@ export type MobileConversation = {
 // 且 app/_layout.tsx 会在无 session 时自动建匿名号 —— 一台演示机轮流登几个账号,
 // 每个后来者都会把前面所有人的会话写进自己名下。
 //
-// ⚠️ 旧的全局键**只读不写、读完即删**:它里面的会话本就全量同步在云端,
-//    删了不丢东西;留着反而会被下一个登录的人捡走。
+// ⚠️ 旧的全局键分**两档**,待遇不同,别搞混:
+//  · `mobile_conversations_v2` / `mobile_active_conversation_v2`(2026-06-20 与云同步同批引入)
+//    —— 内容云端全量都有,**不读、直接删**。留着只会被下一个登录的人捡走。
+//  · `mobile_messages` / `conv_title`(2026-05-28,**早于云同步三周**)
+//    —— 只存在本机、**删了找不回**,所以**不读也不删**,让它当孤儿留在盘上。
+//    读它=把它交给当前登录的人(按错主人),删它=永久销毁。两样都不做。
+//    与网页端对 IndexedDB `bayze_secret` 的处置同构。
 const LEGACY_STORAGE_KEY = 'mobile_conversations_v2'
 const LEGACY_ACTIVE_KEY  = 'mobile_active_conversation_v2'
+/** 只存本机、早于云同步(2026-05-28,比 saveCloudConversation 早三周)的旧键。
+ *  **代码绝不读、也绝不删** —— 读=按错主人交给当前登录者,删=永久销毁。
+ *  导出仅供将来的「旧会话认领」工具定位残留数据。 */
+export const LEGACY_LOCAL_ONLY_KEYS = ['mobile_messages', 'conv_title'] as const
+
 const storageKey = (userId: string) => `mobile_conversations_v2:${userId}`
 const activeKey  = (userId: string) => `mobile_active_conversation_v2:${userId}`
 const MAX_CONVERSATIONS = 80
@@ -98,36 +108,16 @@ export async function dropLegacyLocalStore(): Promise<void> {
  *  宁可显示空(云端会同步回来),也不能把上一个用户的会话端给现在这个人。 */
 export async function loadLocalConversations(userId: string): Promise<{ conversations: MobileConversation[]; activeId: string | null }> {
   if (!userId) return { conversations: [], activeId: null }
-  const [stored, activeId, legacyMessages, legacyTitle] = await Promise.all([
+  const [stored, activeId] = await Promise.all([
     AsyncStorage.getItem(storageKey(userId)),
     AsyncStorage.getItem(activeKey(userId)),
-    AsyncStorage.getItem('mobile_messages'),
-    AsyncStorage.getItem('conv_title'),
   ])
 
   let conversations: MobileConversation[] = []
   try {
     const parsed = JSON.parse(stored ?? '[]')
     if (Array.isArray(parsed)) conversations = parsed.map(normalizeConversation).filter((c): c is MobileConversation => Boolean(c))
-  } catch { /* start with the legacy record */ }
-
-  if (!conversations.length && legacyMessages) {
-    try {
-      const messages = normalizeMessages(JSON.parse(legacyMessages))
-      if (messages.length) {
-        const migrated: MobileConversation = {
-          id: createConversationId(),
-          title: legacyTitle?.trim() || 'Previous chat',
-          model: 'deepseek-v4-flash',
-          messages,
-          updatedAt: Date.now(),
-        }
-        conversations = [migrated]
-        await saveLocalConversations(userId, conversations, migrated.id)
-        await AsyncStorage.multiRemove(['mobile_messages', 'conv_title'])
-      }
-    } catch { /* ignore malformed legacy cache */ }
-  }
+  } catch { /* 本地仓损坏就当空的:云端会同步回来 */ }
 
   return {
     conversations: conversations.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_CONVERSATIONS),
