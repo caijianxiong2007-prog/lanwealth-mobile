@@ -10,8 +10,30 @@ export type MobileConversation = {
   updatedAt: number
 }
 
-const STORAGE_KEY = 'mobile_conversations_v2'
-const ACTIVE_KEY = 'mobile_active_conversation_v2'
+// ── 本地仓必须按用户命名空间 ────────────────────────────────────────────────
+// 2026-08-31 真实事故:老板在客户公司电脑上用网页版演示,浏览器本地仓留下他的会话;
+// 客户在同一台机器注册登录后,客户端把那份列表整包同步上云 —— 18 条含第三方
+// (中崛公司、长信化学)经营数据的会话落进了客户账号。
+// 手机端这里是**同一个病**,而且更重:登出只调 auth.signOut() 不清本地,
+// 且 app/_layout.tsx 会在无 session 时自动建匿名号 —— 一台演示机轮流登几个账号,
+// 每个后来者都会把前面所有人的会话写进自己名下。
+//
+// ⚠️ 旧的全局键分**两档**,待遇不同,别搞混:
+//  · `mobile_conversations_v2` / `mobile_active_conversation_v2`(2026-06-20 与云同步同批引入)
+//    —— 内容云端全量都有,**不读、直接删**。留着只会被下一个登录的人捡走。
+//  · `mobile_messages` / `conv_title`(2026-05-28,**早于云同步三周**)
+//    —— 只存在本机、**删了找不回**,所以**不读也不删**,让它当孤儿留在盘上。
+//    读它=把它交给当前登录的人(按错主人),删它=永久销毁。两样都不做。
+//    与网页端对 IndexedDB `bayze_secret` 的处置同构。
+const LEGACY_STORAGE_KEY = 'mobile_conversations_v2'
+const LEGACY_ACTIVE_KEY  = 'mobile_active_conversation_v2'
+/** 只存本机、早于云同步(2026-05-28,比 saveCloudConversation 早三周)的旧键。
+ *  **代码绝不读、也绝不删** —— 读=按错主人交给当前登录者,删=永久销毁。
+ *  导出仅供将来的「旧会话认领」工具定位残留数据。 */
+export const LEGACY_LOCAL_ONLY_KEYS = ['mobile_messages', 'conv_title'] as const
+
+const storageKey = (userId: string) => `mobile_conversations_v2:${userId}`
+const activeKey  = (userId: string) => `mobile_active_conversation_v2:${userId}`
 const MAX_CONVERSATIONS = 80
 const MAX_CLOUD_MSG_CHARS = 100_000
 
@@ -75,37 +97,27 @@ export function mergeConversations(local: MobileConversation[], cloud: MobileCon
     .slice(0, MAX_CONVERSATIONS)
 }
 
-export async function loadLocalConversations(): Promise<{ conversations: MobileConversation[]; activeId: string | null }> {
-  const [stored, activeId, legacyMessages, legacyTitle] = await Promise.all([
-    AsyncStorage.getItem(STORAGE_KEY),
-    AsyncStorage.getItem(ACTIVE_KEY),
-    AsyncStorage.getItem('mobile_messages'),
-    AsyncStorage.getItem('conv_title'),
+/** 清掉迁移前的全局本地仓。内容云端全量都有,删了不丢;留着会被下一个登录的人捡走。 */
+export async function dropLegacyLocalStore(): Promise<void> {
+  // 故意不先 getItem 判存在 —— multiRemove 对不存在的键本就是空操作,
+  // 而「绝不读旧键」是这次修复的红线(读了就可能顺手用上 = 按错主人搬运)。
+  await AsyncStorage.multiRemove([LEGACY_STORAGE_KEY, LEGACY_ACTIVE_KEY]).catch(() => undefined)
+}
+
+/** ⚠️ 必须传当前登录用户的 id。**拿不到 userId 就别读本地仓** ——
+ *  宁可显示空(云端会同步回来),也不能把上一个用户的会话端给现在这个人。 */
+export async function loadLocalConversations(userId: string): Promise<{ conversations: MobileConversation[]; activeId: string | null }> {
+  if (!userId) return { conversations: [], activeId: null }
+  const [stored, activeId] = await Promise.all([
+    AsyncStorage.getItem(storageKey(userId)),
+    AsyncStorage.getItem(activeKey(userId)),
   ])
 
   let conversations: MobileConversation[] = []
   try {
     const parsed = JSON.parse(stored ?? '[]')
     if (Array.isArray(parsed)) conversations = parsed.map(normalizeConversation).filter((c): c is MobileConversation => Boolean(c))
-  } catch { /* start with the legacy record */ }
-
-  if (!conversations.length && legacyMessages) {
-    try {
-      const messages = normalizeMessages(JSON.parse(legacyMessages))
-      if (messages.length) {
-        const migrated: MobileConversation = {
-          id: createConversationId(),
-          title: legacyTitle?.trim() || 'Previous chat',
-          model: 'deepseek-v4-flash',
-          messages,
-          updatedAt: Date.now(),
-        }
-        conversations = [migrated]
-        await saveLocalConversations(conversations, migrated.id)
-        await AsyncStorage.multiRemove(['mobile_messages', 'conv_title'])
-      }
-    } catch { /* ignore malformed legacy cache */ }
-  }
+  } catch { /* 本地仓损坏就当空的:云端会同步回来 */ }
 
   return {
     conversations: conversations.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_CONVERSATIONS),
@@ -113,13 +125,15 @@ export async function loadLocalConversations(): Promise<{ conversations: MobileC
   }
 }
 
-export async function saveLocalConversations(conversations: MobileConversation[], activeId: string | null) {
+/** ⚠️ 必须传当前登录用户的 id。拿不到就**不落盘** —— 否则又写出一份不知归属的数据。 */
+export async function saveLocalConversations(userId: string, conversations: MobileConversation[], activeId: string | null) {
+  if (!userId) return
   // Base64 image payloads can exceed AsyncStorage limits after only a few chats.
   // Keep them in memory for the current session, but persist a compact marker.
   const limited = conversations.slice(0, MAX_CONVERSATIONS).map(conversationForStorage)
   await AsyncStorage.multiSet([
-    [STORAGE_KEY, JSON.stringify(limited)],
-    [ACTIVE_KEY, activeId ?? ''],
+    [storageKey(userId), JSON.stringify(limited)],
+    [activeKey(userId), activeId ?? ''],
   ])
 }
 

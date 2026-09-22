@@ -9,7 +9,9 @@
     "ios": "expo start --ios",
     "build:android:preview": "eas build --platform android --profile preview",
     "build:android:production": "eas build --platform android --profile production",
-    "build:ios:production": "eas build --platform ios --profile production"
+    "build:ios:production": "eas build --platform ios --profile production",
+    "test:chat-isolation": "node scripts/chat-isolation-selftest.mjs",
+    "test": "npm run test:chat-isolation"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.0",
