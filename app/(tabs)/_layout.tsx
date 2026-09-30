@@ -1,42 +1,26 @@
-import { useState, useEffect } from 'react'
+// 大陆版 Tab 布局(cn 分支):对话 + 我的(v1 去掉 Tools 导流页,网页版入口在设置页)
 import { Tabs } from 'expo-router'
-import { getCachedConfig, refreshConfig } from '../../lib/appConfig'
 
-const C = { bg2:'#111113', border:'#222228', teal:'#1AEBA8', muted:'#606070', text:'#E4E4EA' }
+const C = { bg2: '#101815', border: '#22302a', teal: '#1aeba8', muted: '#8fa89b' }
 
 export default function TabLayout() {
-  // Tools Tab 显示由远程配置控制(零发版点亮):默认显示,服务端下发 tools:false 才隐藏。
-  const [toolsEnabled, setToolsEnabled] = useState(true)
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      const cached = await getCachedConfig()
-      if (alive) setToolsEnabled(cached.tools)
-      const fresh = await refreshConfig()
-      if (alive && fresh) setToolsEnabled(fresh.tools)
-    })()
-    return () => { alive = false }
-  }, [])
-
   return (
     <Tabs screenOptions={{
-      headerShown:        false,
-      tabBarStyle:        { backgroundColor: C.bg2, borderTopColor: C.border, height: 58, paddingBottom: 8 },
-      tabBarActiveTintColor:   C.teal,
+      headerShown: false,
+      tabBarStyle: { backgroundColor: C.bg2, borderTopColor: C.border, height: 58, paddingBottom: 8 },
+      tabBarActiveTintColor: C.teal,
       tabBarInactiveTintColor: C.muted,
-      tabBarLabelStyle:   { fontSize: 11 },
+      tabBarLabelStyle: { fontSize: 11 },
     }}>
-      <Tabs.Screen name="index"    options={{ title: 'Chat',     tabBarIcon: ({ color }) => <TabIcon name="chat"     color={color} /> }} />
-      {/* href:null 时从 Tab 栏移除(远程关时隐藏,而非显示默认样式) */}
-      <Tabs.Screen name="tools"    options={{ title: 'Tools',    href: toolsEnabled ? undefined : null, tabBarIcon: ({ color }) => <TabIcon name="tools" color={color} /> }} />
-      <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: ({ color }) => <TabIcon name="settings" color={color} /> }} />
+      <Tabs.Screen name="index"    options={{ title: '对话',  tabBarIcon: ({ color }) => <TabIcon name="chat" color={color} /> }} />
+      <Tabs.Screen name="tools"    options={{ href: null,  title: 'Tools', tabBarIcon: ({ color }) => <TabIcon name="tools" color={color} /> }} />
+      <Tabs.Screen name="settings" options={{ title: '我的',  tabBarIcon: ({ color }) => <TabIcon name="settings" color={color} /> }} />
     </Tabs>
   )
 }
 
 function TabIcon({ name, color }: { name: string; color: string }) {
-  // Simple SVG-less icons via text
-  const icons: Record<string, string> = { chat: '💬', tools: '🧰', settings: '⚙️' }
   const { Text } = require('react-native')
+  const icons: Record<string, string> = { chat: '💬', tools: '🧰', settings: '👤' }
   return <Text style={{ fontSize: 20 }}>{icons[name] ?? '·'}</Text>
 }

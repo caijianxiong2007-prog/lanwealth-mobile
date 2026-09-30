@@ -1,238 +1,123 @@
-import { useState, useEffect } from 'react'
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
-         KeyboardAvoidingView, Platform, Image } from 'react-native'
-import { useRouter, type Href } from 'expo-router'
-import AsyncStorage          from '@react-native-async-storage/async-storage'
-import { supabase, signInAsGuest } from '../../lib/supabase'
-import { getCachedConfig, refreshConfig } from '../../lib/appConfig'
-import PhoneAuth from '../../components/PhoneAuth'
+// 大陆版登录页(cn 分支):手机号+验证码,登注合一(与网页端同款流程)
+// 后端 = cn-chat /api otp_send / otp_verify;成功后 session_token 存 SecureStore。
+import { useState, useRef } from 'react'
+import {
+  View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
+} from 'react-native'
+import { useRouter } from 'expo-router'
+import { cnOtpSend, cnOtpVerify } from '../../lib/cnApi'
 
-// New routes (signup/forgot) — typed-routes cache regenerates on dev/EAS build
-const R = (p: string) => p as Href
-
-const C = { bg:'#0A0A0B', bg2:'#111113', bg3:'#18181C', border:'#222228', border2:'#2C2C35', text:'#E4E4EA', muted:'#606070', teal:'#1AEBA8', teal2:'#0F8C63', teal3:'#083D2B', red:'#E8453C' }
+const C = {
+  bg: '#0a0f0d', card: '#101815', border: '#22302a', text: '#e6efe9', muted: '#8fa89b',
+  teal: '#1aeba8', red: '#e05656',
+}
 
 export default function LoginScreen() {
-  const router = useRouter()
-  const [email,   setEmail]   = useState('')
-  const [pass,    setPass]    = useState('')
-  const [showPw,  setShowPw]  = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [guestLoading, setGuestLoading] = useState(false)
-  const [error,   setError]   = useState('')
-  const [remember, setRemember] = useState(true)
-  // 手机号登录:入口开关由服务端 /api/app-config 下发(开/关不用重新上架)
-  const [phoneEnabled, setPhoneEnabled] = useState(false)
-  const [mode, setMode] = useState<'email' | 'phone'>('email')
+  const router     = useRouter()
+  const [phone, setPhone]     = useState('')
+  const [code, setCode]       = useState('')
+  const [sent, setSent]       = useState(false)
+  const [sending, setSending] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+  const [error, setError]     = useState('')
+  const [countdown, setCountdown] = useState(0)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // 记住账号:预填上次登录邮箱(只记标识,不存密码)
-  useEffect(() => {
-    (async () => {
-      try {
-        const on = (await AsyncStorage.getItem('lw_remember')) !== '0'   // 默认开
-        setRemember(on)
-        if (on) { const e = await AsyncStorage.getItem('lw_acct_email'); if (e) setEmail(e) }
-        // 上次用手机号登录的,直接停在手机号 Tab
-        if (on && (await AsyncStorage.getItem('lw_acct_method')) === 'phone') setMode('phone')
-      } catch { /* ignore */ }
-    })()
-  }, [])
-
-  // 先用缓存立即渲染(避免 Tab 迟到几百毫秒才蹦出来),再后台刷新
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      const cached = await getCachedConfig()
-      if (alive) setPhoneEnabled(cached.phoneAuth)
-      const fresh = await refreshConfig()
-      if (alive && fresh) setPhoneEnabled(fresh.phoneAuth)
-    })()
-    return () => { alive = false }
-  }, [])
-
-  async function signIn() {
-    if (!email || !pass) return
-    setLoading(true); setError('')
-    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass })
-    setLoading(false)
-    if (err) { setError(err.message); return }
-    try {
-      await AsyncStorage.setItem('lw_remember', remember ? '1' : '0')
-      if (remember) await AsyncStorage.setItem('lw_acct_email', email.trim())
-      else await AsyncStorage.removeItem('lw_acct_email')
-      await AsyncStorage.setItem('lw_acct_method', 'email')
-    } catch { /* ignore */ }
+  function startCountdown() {
+    setCountdown(60)
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      setCountdown((s) => {
+        if (s <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current)
+          return 0
+        }
+        return s - 1
+      })
+    }, 1000)
   }
 
-  async function continueAsGuest() {
-    setGuestLoading(true); setError('')
-    try {
-      await signInAsGuest()          // RootLayout's auth listener routes to (tabs)
-      router.replace('/(tabs)')
-    } catch {
-      setGuestLoading(false)
-      setError('Guest mode is unavailable right now. Please sign in.')
-    }
+  async function sendCode() {
+    const p = phone.replace(/\D/g, '')
+    if (!/^1[3-9]\d{9}$/.test(p)) { setError('请输入正确的 11 位手机号'); return }
+    setError(''); setSending(true)
+    const r = await cnOtpSend(p)
+    setSending(false)
+    if (r.ok) { setSent(true); startCountdown() } else setError(r.error || '发送失败')
+  }
+
+  async function verify() {
+    const p = phone.replace(/\D/g, '')
+    if (code.trim().length !== 6) { setError('请输入 6 位验证码'); return }
+    setError(''); setVerifying(true)
+    const r = await cnOtpVerify(p, code.trim(), true)   // remember=true:30 天免登
+    setVerifying(false)
+    if (r.ok) router.replace('/(tabs)')
+    else setError(r.error || '验证失败')
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex:1, backgroundColor: C.bg }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView style={s.wrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={s.card}>
+        <Text style={s.logo}>🦄</Text>
+        <Text style={s.title}>白泽 Bayze · 大陆版</Text>
+        <Text style={s.sub}>手机号验证即登录,未注册自动创建。{'\n'}数据存储于境内,对话走已备案国产大模型。</Text>
 
-        {/* Bayze logo */}
-        <View style={s.logoWrap}>
-          <View style={s.logoImgWrap}>
-            <Image
-              source={require('../../assets/bayze-logo.png')}
-              style={s.logoImg}
-              resizeMode="contain"
-            />
-          </View>
-          <View style={s.logoTextRow}>
-            <Text style={s.logoText}>Bayze</Text>
-            <Text style={s.logoZh}>白泽</Text>
-          </View>
-          <Text style={s.logoSub}>Sign in, or continue as a guest</Text>
-        </View>
-
-        {/* Card */}
-        <View style={s.card}>
-
-          {/* 邮箱 / 手机号 切换(手机号入口由服务端下发开关控制) */}
-          {phoneEnabled ? (
-            <View style={s.tabRow}>
-              {(['email', 'phone'] as const).map(m => (
-                <TouchableOpacity
-                  key={m}
-                  style={[s.tab, mode === m && s.tabOn]}
-                  onPress={() => { setMode(m); setError('') }}
-                  activeOpacity={.7}
-                >
-                  <Text style={[s.tabText, mode === m && s.tabTextOn]}>
-                    {m === 'email' ? '邮箱 Email' : '手机号 Phone'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
-
-          {mode === 'phone' ? (
-            <PhoneAuth remember={remember} onDone={() => router.replace('/(tabs)')} />
-          ) : (
-          <>
-          <Text style={s.label}>Email</Text>
-          <TextInput
-            style={s.input} value={email} onChangeText={setEmail}
-            autoCapitalize="none" keyboardType="email-address" autoCorrect={false}
-            placeholderTextColor={C.muted} placeholder="your@email.com"
-          />
-
-          <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'baseline', marginTop:14, marginBottom:6 }}>
-            <Text style={s.label}>Password</Text>
-            <TouchableOpacity onPress={() => router.push(R('/(auth)/forgot'))} activeOpacity={.7}>
-              <Text style={s.forgotLink}>Forgot password?</Text>
-            </TouchableOpacity>
-          </View>
-          <View>
+        <TextInput
+          style={s.input}
+          placeholder="11 位手机号"
+          placeholderTextColor={C.muted}
+          keyboardType="phone-pad"
+          maxLength={11}
+          value={phone}
+          onChangeText={(t) => setPhone(t.replace(/\D/g, ''))}
+        />
+        {sent && (
+          <View style={s.codeRow}>
             <TextInput
-              style={[s.input, { paddingRight: 44 }]}
-              value={pass} onChangeText={setPass}
-              secureTextEntry={!showPw}
-              placeholderTextColor={C.muted} placeholder="••••••••"
+              style={[s.input, { flex: 1, marginBottom: 0 }]}
+              placeholder="6 位验证码"
+              placeholderTextColor={C.muted}
+              keyboardType="number-pad"
+              maxLength={6}
+              value={code}
+              onChangeText={(t) => setCode(t.replace(/\D/g, ''))}
             />
-            <TouchableOpacity
-              style={s.eyeBtn} onPress={() => setShowPw(v => !v)} activeOpacity={.7}
-            >
-              <Text style={{ fontSize:18 }}>{showPw ? '🙈' : '👁'}</Text>
+            <TouchableOpacity style={s.resend} disabled={countdown > 0} onPress={sendCode}>
+              <Text style={[s.resendTx, countdown > 0 && { color: C.muted }]}>
+                {countdown > 0 ? `${countdown}s` : '重新发送'}
+              </Text>
             </TouchableOpacity>
           </View>
+        )}
 
-          {/* 记住账号(只记邮箱,不存密码) */}
-          <TouchableOpacity style={s.rememberRow} onPress={() => setRemember(v => !v)} activeOpacity={.7}>
-            <View style={[s.checkbox, remember && s.checkboxOn]}>
-              {remember ? <Text style={s.checkmark}>✓</Text> : null}
-            </View>
-            <Text style={s.rememberText}>Remember account</Text>
+        {error ? <Text style={s.err}>{error}</Text> : null}
+
+        {!sent ? (
+          <TouchableOpacity style={s.btn} onPress={sendCode} disabled={sending} activeOpacity={0.8}>
+            {sending ? <ActivityIndicator color="#04140e" /> : <Text style={s.btnTx}>获取验证码</Text>}
           </TouchableOpacity>
-
-          {error ? (
-            <View style={s.errBox}><Text style={s.errText}>{error}</Text></View>
-          ) : null}
-
-          <TouchableOpacity
-            style={[s.btn, loading && { opacity:.5 }]}
-            onPress={signIn} disabled={loading} activeOpacity={.8}
-          >
-            <Text style={s.btnText}>{loading ? 'Signing in…' : 'Sign in →'}</Text>
+        ) : (
+          <TouchableOpacity style={s.btn} onPress={verify} disabled={verifying} activeOpacity={0.8}>
+            {verifying ? <ActivityIndicator color="#04140e" /> : <Text style={s.btnTx}>验证并开始</Text>}
           </TouchableOpacity>
-          </>
-          )}
-        </View>
-
-        {/* Divider */}
-        <View style={s.dividerRow}>
-          <View style={s.dividerLine} />
-          <Text style={s.dividerText}>or</Text>
-          <View style={s.dividerLine} />
-        </View>
-
-        {/* Guest mode — use the app without an account */}
-        <TouchableOpacity
-          style={[s.guestBtn, guestLoading && { opacity:.5 }]}
-          onPress={continueAsGuest} disabled={guestLoading} activeOpacity={.8}
-        >
-          <Text style={s.guestBtnText}>
-            {guestLoading ? 'Starting…' : 'Continue as guest →'}
-          </Text>
-        </TouchableOpacity>
-        <Text style={s.guestHint}>No account needed. Sign in later if you want to use an account.</Text>
-
-        <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginTop:20 }}>
-          <Text style={s.hint}>No account?</Text>
-          <TouchableOpacity onPress={() => router.push(R('/(auth)/signup'))} activeOpacity={.7}>
-            <Text style={[s.hint, { color:'#1AEBA8', fontWeight:'600' }]}>Sign up free →</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+        )}
+      </View>
     </KeyboardAvoidingView>
   )
 }
 
 const s = StyleSheet.create({
-  container:   { flexGrow:1, backgroundColor:C.bg, alignItems:'center', justifyContent:'center', padding:24 },
-  logoWrap:    { alignItems:'center', marginBottom:36 },
-  logoImgWrap: { width:72, height:72, borderRadius:18, backgroundColor:'rgba(255,255,255,0.92)', alignItems:'center', justifyContent:'center', marginBottom:14, padding:7 },
-  logoImg:     { width:58, height:58 },
-  logoTextRow: { flexDirection:'row', alignItems:'baseline', gap:8, marginBottom:4 },
-  logoText:    { fontSize:26, fontWeight:'700', color:C.text, letterSpacing:.5 },
-  logoZh:      { fontSize:14, color:'rgba(255,255,255,0.3)', letterSpacing:.6 },
-  logoSub:     { fontSize:13, color:C.muted, marginTop:2 },
-  card:        { width:'100%', maxWidth:360, backgroundColor:C.bg2, borderWidth:1, borderColor:C.border, borderRadius:14, padding:24 },
-  label:       { fontSize:12, color:C.muted, marginBottom:6 },
-  input:       { backgroundColor:C.bg3, borderWidth:1, borderColor:C.border2, borderRadius:8, padding:12, color:C.text, fontSize:15 },
-  eyeBtn:      { position:'absolute', right:12, top:10 },
-  errBox:      { marginTop:12, backgroundColor:'rgba(232,69,60,.1)', borderWidth:1, borderColor:'rgba(232,69,60,.3)', borderRadius:6, padding:10 },
-  errText:     { color:C.red, fontSize:13 },
-  btn:         { marginTop:18, backgroundColor:C.teal, borderRadius:8, padding:13, alignItems:'center' },
-  btnText:     { color:'#050505', fontWeight:'700', fontSize:15 },
-  rememberRow: { flexDirection:'row', alignItems:'center', gap:8, marginTop:14 },
-  checkbox:    { width:18, height:18, borderRadius:4, borderWidth:1, borderColor:C.border2, alignItems:'center', justifyContent:'center' },
-  checkboxOn:  { backgroundColor:C.teal, borderColor:C.teal },
-  checkmark:   { color:'#050505', fontSize:12, fontWeight:'800', lineHeight:14 },
-  rememberText:{ fontSize:13, color:C.muted },
-  hint:        { marginTop:20, fontSize:12, color:C.muted },
-  forgotLink:  { fontSize:12, color:C.teal, opacity:.85 },
-
-  tabRow:      { flexDirection:'row', gap:8, marginBottom:18 },
-  tab:         { flex:1, paddingVertical:9, borderRadius:8, borderWidth:1, borderColor:C.border2, alignItems:'center', backgroundColor:'transparent' },
-  tabOn:       { borderColor:C.teal, backgroundColor:C.teal3 },
-  tabText:     { fontSize:13, color:C.muted, fontWeight:'600' },
-  tabTextOn:   { color:C.teal },
-
-  dividerRow:  { flexDirection:'row', alignItems:'center', gap:10, width:'100%', maxWidth:360, marginTop:22 },
-  dividerLine: { flex:1, height:1, backgroundColor:C.border },
-  dividerText: { fontSize:12, color:C.muted },
-  guestBtn:    { marginTop:16, width:'100%', maxWidth:360, backgroundColor:'transparent', borderWidth:1, borderColor:C.border2, borderRadius:8, padding:13, alignItems:'center' },
-  guestBtnText:{ color:C.text, fontWeight:'600', fontSize:15 },
-  guestHint:   { marginTop:8, fontSize:11, color:C.muted, textAlign:'center', maxWidth:340 },
+  wrap: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  card: { width: '100%', maxWidth: 360, backgroundColor: C.card, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 24 },
+  logo: { fontSize: 40, textAlign: 'center' },
+  title: { color: C.text, fontSize: 20, fontWeight: '700', textAlign: 'center', marginTop: 10 },
+  sub: { color: C.muted, fontSize: 12.5, textAlign: 'center', marginTop: 6, marginBottom: 18, lineHeight: 18 },
+  input: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, fontSize: 15, padding: 12, marginBottom: 12 },
+  codeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  resend: { padding: 10 },
+  resendTx: { color: C.teal, fontSize: 13 },
+  err: { color: C.red, fontSize: 12.5, marginBottom: 8 },
+  btn: { backgroundColor: C.teal, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 4 },
+  btnTx: { color: '#04140e', fontSize: 15, fontWeight: '700' },
 })
