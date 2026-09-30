@@ -8,7 +8,7 @@ import {
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, CN_USER_STOP, type CnMessage } from '../../lib/cnApi'
+import { CN_MODELS, cnChat, cnLogout, type CnMessage } from '../../lib/cnApi'
 
 const C = {
   bg: '#0a0f0d', card: '#101815', border: '#22302a', text: '#e6efe9', muted: '#8fa89b',
@@ -25,9 +25,8 @@ export default function ChatScreen() {
   const [model, setModel]       = useState(CN_MODELS[0].id)
   const [busy, setBusy]         = useState(false)
   const [showModels, setShowModels] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
   const listRef  = useRef<FlatList<Bubble>>(null)
-  const abortRef = useRef<AbortController | null>(null)   // 保留给非流式降级路径;流式停止走 cnStopStream
-  const cnActiveCleanup = () => { abortRef.current = null }
 
   useEffect(() => {
     AsyncStorage.getItem(HISTORY_KEY).then((raw) => {
@@ -45,54 +44,33 @@ export default function ChatScreen() {
     const userB: Bubble = { role: 'user', content: text, ts: Date.now() }
     const next = [...messages, userB]
     setMessages(next); persist(next); setInput(''); setBusy(true)
-    const apiMsgs: CnMessage[] = next.slice(-20).map((m) => ({ role: m.role, content: m.content }))
-
-    // 流式优先(cn-stream SSE 逐字);一字未出即失败 → 降级非流式;中途断流 → 保留已生成
-    let acc = ''
-    let streamed = false
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     try {
-      for await (const delta of cnStreamChat(model, apiMsgs)) {
-        streamed = true
-        acc += delta
-        const draft = [...next, { role: 'assistant' as const, content: acc, ts: Date.now() }]
-        setMessages(draft)
-      }
-      const finalMsgs = [...next, { role: 'assistant' as const, content: acc || '(空响应)', ts: Date.now() }]
-      setMessages(finalMsgs); persist(finalMsgs)
+      const apiMsgs: CnMessage[] = next.slice(-20).map((m) => ({ role: m.role, content: m.content }))
+      const r = await cnChat(model, apiMsgs, { signal: ctrl.signal })
+      const withReply = [...next, { role: 'assistant' as const, content: r.content, ts: Date.now() }]
+      setMessages(withReply); persist(withReply)
     } catch (e) {
       const err = e as Error & { status?: number; quota?: boolean }
-      if (err.message === CN_USER_STOP) {
-        // 用户主动停止:保留已生成部分
-        if (acc) { const kept = [...next, { role: 'assistant' as const, content: acc, ts: Date.now() }]; setMessages(kept); persist(kept) }
-      } else if (!streamed) {
-        // 流式通道不可用/前置报错 → 非流式降级(服务端前置校验错误会在这里重新抛出)
-        try {
-          const r = await cnChat(model, apiMsgs)
-          const finalMsgs = [...next, { role: 'assistant' as const, content: r.content, ts: Date.now() }]
-          setMessages(finalMsgs); persist(finalMsgs)
-        } catch (e2) {
-          const err2 = e2 as Error & { status?: number; quota?: boolean }
-          if (err2.status === 401) {
-            await cnLogout()
-            const { useRouter } = await import('expo-router')
-            useRouter().replace('/(auth)/login')
-            return
-          }
-          const withErr = [...next, { role: 'assistant' as const, content: '⚠️ ' + (err2.message || '网络异常,请重试'), ts: Date.now() }]
-          setMessages(withErr); persist(withErr)
-          if (err2.quota) Alert.alert('额度已用完', err2.message)
-        }
+      if (ctrl.signal.aborted) {
+        // 用户主动停止:保留已有内容,不加错误泡
+      } else if (err.status === 401) {
+        await cnLogout()
+        const { useRouter } = await import('expo-router')
+        useRouter().replace('/(auth)/login')
+        return
       } else {
-        // 中途断流:保留已生成内容并标注
-        const kept = [...next, { role: 'assistant' as const, content: acc + '\n\n(网络中断,内容可能不完整)', ts: Date.now() }]
-        setMessages(kept); persist(kept)
+        const withErr = [...next, { role: 'assistant' as const, content: '⚠️ ' + (err.message || '网络异常,请重试'), ts: Date.now() }]
+        setMessages(withErr); persist(withErr)
+        if (err.quota) Alert.alert('额度已用完', err.message)
       }
     } finally {
-      setBusy(false); cnActiveCleanup()
+      setBusy(false); abortRef.current = null
     }
   }
 
-  function stop() { cnStopStream() }
+  function stop() { abortRef.current?.abort() }
 
   function clearChat() {
     Alert.alert('清空对话', '确定清空当前对话记录?(仅清本机)', [

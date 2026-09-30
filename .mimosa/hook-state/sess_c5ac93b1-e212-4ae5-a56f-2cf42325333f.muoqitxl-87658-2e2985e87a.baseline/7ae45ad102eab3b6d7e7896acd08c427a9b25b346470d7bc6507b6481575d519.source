@@ -1,0 +1,48 @@
+{
+  "name": "lanwealth-mobile",
+  "version": "1.3.4",
+  "main": "expo-router/entry",
+  "scripts": {
+    "postinstall": "node scripts/patch-xcode.js",
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "build:android:preview": "eas build --platform android --profile preview",
+    "build:android:production": "eas build --platform android --profile production",
+    "build:ios:production": "eas build --platform ios --profile production",
+    "test:chat-isolation": "node scripts/chat-isolation-selftest.mjs",
+    "test": "npm run test:chat-isolation"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^14.0.0",
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "@supabase/supabase-js": "^2.49.0",
+    "expo": "~53.0.0",
+    "expo-constants": "~17.1.8",
+    "expo-document-picker": "~13.1.6",
+    "expo-file-system": "~18.1.11",
+    "expo-font": "~13.3.2",
+    "expo-image-manipulator": "~13.1.7",
+    "expo-image-picker": "~16.1.4",
+    "expo-linking": "~7.1.7",
+    "expo-router": "~5.1.11",
+    "expo-secure-store": "~14.2.4",
+    "expo-share-intent": "4.1.1",
+    "expo-speech-recognition": "2.1.5",
+    "expo-splash-screen": "~0.30.10",
+    "expo-status-bar": "~2.2.0",
+    "expo-updates": "~0.28.18",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-markdown-display": "^7.0.2",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-screens": "~4.11.1",
+    "react-native-web": "^0.20.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@types/react": "~19.0.0",
+    "typescript": "~5.8.3"
+  }
+}
