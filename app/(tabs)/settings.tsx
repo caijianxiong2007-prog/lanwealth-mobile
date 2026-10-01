@@ -5,6 +5,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getCnSession, cnLogout, cnUsage, CN_BASE, type CnUsage } from '../../lib/cnApi'
+import { wipeConversations } from '../../lib/cnConversations'
 
 const C = {
   bg: '#0a0f0d', card: '#101815', border: '#22302a', text: '#e6efe9', muted: '#8fa89b',
@@ -37,8 +38,9 @@ export default function SettingsScreen() {
   const tokens7 = week.reduce((s, r) => s + Number(r.prompt_tokens || 0) + Number(r.completion_tokens || 0), 0)
 
   async function logout() {
+    const s = await getCnSession()
+    if (s) await wipeConversations(s.phone)   // 会话仅存本机:登出即清,不留给下一账号
     await cnLogout()
-    await AsyncStorage.removeItem('cn_chat_history_v1').catch(() => {})
     const { useRouter } = await import('expo-router')
     useRouter().replace('/(auth)/login')
   }

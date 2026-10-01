@@ -1,10 +1,10 @@
 {
   "schemaVersion": "mimosa-hook-status/v1",
-  "recordedAt": "2026-10-01T00:00:27.027Z",
+  "recordedAt": "2026-10-01T00:01:22.236Z",
   "sessionId": "sess_c5ac93b1-e212-4ae5-a56f-2cf42325333f",
   "event": "PostToolUse",
   "toolName": "Edit",
-  "file": "app/(tabs)/index.tsx",
+  "file": "app/(tabs)/settings.tsx",
   "outcome": "clear",
   "coverage": "complete",
   "findingCount": 0,
