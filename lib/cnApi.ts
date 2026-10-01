@@ -241,3 +241,15 @@ export async function cnUsage(): Promise<CnUsage> {
   const j = await post('/crm-api', { action: 'usage_account', session_token: session.token })
   return (j.usage || []) as CnUsage
 }
+
+// ── 附件:文档文本提取(base64 直传,PDF/DOCX/TXT;不入文件库,提取结果作对话上下文)──
+export async function cnFileExtract(filename: string, contentB64: string): Promise<{ ok: boolean; text?: string; chars?: number; error?: string }> {
+  const session = await getCnSession()
+  if (!session) return { ok: false, error: '未登录' }
+  try {
+    const j = await post('/crm-api', { action: 'file_extract', session_token: session.token, filename, content_b64: contentB64 }, 60000)
+    return { ok: true, text: j.text as string, chars: j.chars as number }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '提取失败' }
+  }
+}

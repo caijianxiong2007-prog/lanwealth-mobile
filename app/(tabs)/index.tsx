@@ -1,14 +1,16 @@
-// 大陆版聊天页(cn 分支,v0.2):
+// 大陆版聊天页(cn 分支,v0.3):
 //   · 5 个已备案国产模型(cn-chat);SSE 流式对话(cn-stream /stream,失败自动降级非流式)
 //   · 多会话本地管理(按手机号命名空间,仅存本机);服务端按活跃企业岗位自动注入人设、
 //     额度闸门/保密对话企业开关同网页端
-//   · 国际版 main 分支的附件/BYOK/客户关联等能力后续按需回移
+//   · 附件:选文档 → 服务端提取文本(PDF/DOCX/TXT,直传不入库)→ 作为本轮上下文注入
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, getCnSession, CN_USER_STOP, type CnMessage } from '../../lib/cnApi'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system'
+import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, getCnSession, cnFileExtract, CN_USER_STOP, type CnMessage } from '../../lib/cnApi'
 import {
   loadConversations, upsertConversation, dropConversation, wipeConversations,
   createConversationId, titleFrom, type CnConversation,
@@ -31,6 +33,8 @@ export default function ChatScreen() {
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory]   = useState<CnConversation[]>([])
   const [convId, setConvId]     = useState<string | null>(null)
+  const [attach, setAttach]     = useState<{ name: string; chars: number; text: string } | null>(null)
+  const [attachBusy, setAttachBusy] = useState(false)
   const listRef  = useRef<FlatList<Bubble>>(null)
   const abortRef = useRef<AbortController | null>(null)   // 保留给非流式降级路径;流式停止走 cnStopStream
   const cnActiveCleanup = () => { abortRef.current = null }
@@ -94,6 +98,29 @@ export default function ChatScreen() {
     setHistory(await upsertConversation(s.phone, conv))
   }
 
+  async function pickAttachment() {
+    if (attachBusy || busy) return
+    const r = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+             'text/plain', 'text/markdown', 'text/csv', 'text/comma-separated-values'],
+      copyToCacheDirectory: true,
+    })
+    if (r.canceled || !r.assets?.length) return
+    const f = r.assets[0]
+    if ((f.size || 0) > 10 * 1024 * 1024) { Alert.alert('文件过大', '请选择 10MB 以内的文档'); return }
+    setAttachBusy(true)
+    try {
+      const b64 = await FileSystem.readAsStringAsync(f.uri, { encoding: FileSystem.EncodingType.Base64 })
+      const out = await cnFileExtract(f.name || '附件', b64)
+      if (!out.ok || !out.text) { Alert.alert('附件提取失败', out.error || '请换用文本内容粘贴'); return }
+      setAttach({ name: f.name || '附件', chars: out.chars || out.text.length, text: out.text })
+    } catch (e) {
+      Alert.alert('附件读取失败', e instanceof Error ? e.message : '请重试')
+    } finally {
+      setAttachBusy(false)
+    }
+  }
+
   async function send() {
     const text = input.trim()
     if (!text || busy) return
@@ -101,6 +128,11 @@ export default function ChatScreen() {
     const next = [...messages, userB]
     setMessages(next); void persistConv(next); setInput(''); setBusy(true)
     const apiMsgs: CnMessage[] = next.slice(-20).map((m) => ({ role: m.role, content: m.content }))
+    // 附件上下文注入(与网页端同款:用一次即清)
+    if (attach) {
+      apiMsgs.unshift({ role: 'system', content: '以下是用户上传的文件内容,作为回答的参考依据:\n\n' + attach.text.slice(0, 6000) })
+      setAttach(null)
+    }
 
     // 流式优先(cn-stream SSE 逐字);一字未出即失败 → 降级非流式;中途断流 → 保留已生成
     let acc = ''
@@ -232,8 +264,27 @@ export default function ChatScreen() {
         )}
       />
 
+      {/* 附件预览条 */}
+      {attach && (
+        <View style={s.attachBar}>
+          <Text style={s.attachTx} numberOfLines={1}>📎 {attach.name} · {attach.chars} 字</Text>
+          <TouchableOpacity onPress={() => setAttach(null)} style={{ padding: 4 }}>
+            <Text style={{ color: C.red, fontSize: 12 }}>✕ 移除</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* 输入区 */}
       <View style={[s.inputRow, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+        {attachBusy ? (
+          <TouchableOpacity style={s.attachBtn} activeOpacity={0.8}>
+            <ActivityIndicator size="small" color={C.teal} />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={s.attachBtn} onPress={pickAttachment} disabled={busy} activeOpacity={0.8}>
+            <Text style={{ fontSize: 18 }}>📎</Text>
+          </TouchableOpacity>
+        )}
         <TextInput
           style={s.input}
           placeholder="输入问题…"
@@ -290,4 +341,7 @@ const s = StyleSheet.create({
   histName: { color: C.text, fontSize: 13.5 },
   histMeta: { color: C.muted, fontSize: 11, marginTop: 2 },
   histDel: { padding: 8 },
+  attachBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  attachBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 12, marginBottom: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: C.card, borderWidth: 1, borderColor: 'rgba(26,235,168,.25)', borderRadius: 10 },
+  attachTx: { color: C.text, fontSize: 12, flex: 1 },
 })

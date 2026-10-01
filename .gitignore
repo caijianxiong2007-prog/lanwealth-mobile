@@ -25,3 +25,4 @@ google-play-key.json
 
 # TypeScript 增量编译缓存
 *.tsbuildinfo
+sess-*.json
