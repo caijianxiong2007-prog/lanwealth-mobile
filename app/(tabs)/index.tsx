@@ -1,20 +1,23 @@
-// 大陆版聊天页(cn 分支,v1 精简版):
-//   · 5 个已备案国产模型(cn-chat);非流式对话(SSE 流式后续版本接入)
-//   · 单会话 + 本地历史(AsyncStorage);服务端按活跃企业岗位自动注入人设、额度闸门同网页端
-//   · 国际版 1698 行的附件/BYOK/客户关联等能力留在 main 分支,后续按需回移
+// 大陆版聊天页(cn 分支,v0.2):
+//   · 5 个已备案国产模型(cn-chat);SSE 流式对话(cn-stream /stream,失败自动降级非流式)
+//   · 多会话本地管理(按手机号命名空间,仅存本机);服务端按活跃企业岗位自动注入人设、
+//     额度闸门/保密对话企业开关同网页端
+//   · 国际版 main 分支的附件/BYOK/客户关联等能力后续按需回移
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, CN_USER_STOP, type CnMessage } from '../../lib/cnApi'
+import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, getCnSession, CN_USER_STOP, type CnMessage } from '../../lib/cnApi'
+import {
+  loadConversations, upsertConversation, dropConversation, wipeConversations,
+  createConversationId, titleFrom, type CnConversation,
+} from '../../lib/cnConversations'
 
 const C = {
   bg: '#0a0f0d', card: '#101815', border: '#22302a', text: '#e6efe9', muted: '#8fa89b',
   teal: '#1aeba8', tealDim: 'rgba(26,235,168,.1)', red: '#e05656',
 }
-const HISTORY_KEY = 'cn_chat_history_v1'
 
 type Bubble = { role: 'user' | 'assistant'; content: string; ts: number }
 
@@ -25,26 +28,78 @@ export default function ChatScreen() {
   const [model, setModel]       = useState(CN_MODELS[0].id)
   const [busy, setBusy]         = useState(false)
   const [showModels, setShowModels] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [history, setHistory]   = useState<CnConversation[]>([])
+  const [convId, setConvId]     = useState<string | null>(null)
   const listRef  = useRef<FlatList<Bubble>>(null)
   const abortRef = useRef<AbortController | null>(null)   // 保留给非流式降级路径;流式停止走 cnStopStream
   const cnActiveCleanup = () => { abortRef.current = null }
 
+  // 启动:取本地会话列表;有历史则续接最近一条,否则空白新对话
   useEffect(() => {
-    AsyncStorage.getItem(HISTORY_KEY).then((raw) => {
-      if (raw) { try { setMessages(JSON.parse(raw)) } catch {} }
-    }).catch(() => {})
+    ;(async () => {
+      const s = await getCnSession()
+      if (!s) return
+      const list = await loadConversations(s.phone)
+      setHistory(list)
+      if (list.length) {
+        setConvId(list[0].id)
+        setModel(list[0].model || CN_MODELS[0].id)
+        setMessages(list[0].messages.map((m, i) => ({ role: m.role as 'user' | 'assistant', content: m.content, ts: i })))
+      }
+    })()
   }, [])
 
-  const persist = useCallback((next: Bubble[]) => {
-    AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(next.slice(-200))).catch(() => {})
-  }, [])
+  async function openHistory() {
+    const s = await getCnSession()
+    if (s) setHistory(await loadConversations(s.phone))
+    setShowHistory(true)
+  }
+
+  async function pickConversation(id: string) {
+    if (busy) return
+    const c = history.find((x) => x.id === id)
+    if (c) {
+      setConvId(c.id); setModel(c.model || CN_MODELS[0].id)
+      setMessages(c.messages.map((m, i) => ({ role: m.role as 'user' | 'assistant', content: m.content, ts: i })))
+    }
+    setShowHistory(false)
+  }
+
+  function newConversation() {
+    if (busy) return
+    setConvId(null); setMessages([]); setShowHistory(false); setShowModels(false)
+  }
+
+  async function removeConversation(id: string) {
+    const s = await getCnSession()
+    if (!s) return
+    const list = await dropConversation(s.phone, id)
+    setHistory(list)
+    if (id === convId) newConversation()
+  }
+
+  const persist = useCallback((_next: Bubble[]) => {}, [])   // 兼容占位(实际持久化走 persistConv)
+  async function persistConv(next: Bubble[]) {
+    const s = await getCnSession()
+    if (!s || !next.length) return
+    const conv: CnConversation = {
+      id: convId || createConversationId(),
+      title: titleFrom(next.find((m) => m.role === 'user')?.content || '新对话'),
+      model,
+      messages: next.map((m) => ({ role: m.role, content: m.content })),
+      updatedAt: Date.now(),
+    }
+    setConvId(conv.id)
+    setHistory(await upsertConversation(s.phone, conv))
+  }
 
   async function send() {
     const text = input.trim()
     if (!text || busy) return
     const userB: Bubble = { role: 'user', content: text, ts: Date.now() }
     const next = [...messages, userB]
-    setMessages(next); persist(next); setInput(''); setBusy(true)
+    setMessages(next); void persistConv(next); setInput(''); setBusy(true)
     const apiMsgs: CnMessage[] = next.slice(-20).map((m) => ({ role: m.role, content: m.content }))
 
     // 流式优先(cn-stream SSE 逐字);一字未出即失败 → 降级非流式;中途断流 → 保留已生成
@@ -58,18 +113,18 @@ export default function ChatScreen() {
         setMessages(draft)
       }
       const finalMsgs = [...next, { role: 'assistant' as const, content: acc || '(空响应)', ts: Date.now() }]
-      setMessages(finalMsgs); persist(finalMsgs)
+      setMessages(finalMsgs); void persistConv(finalMsgs)
     } catch (e) {
       const err = e as Error & { status?: number; quota?: boolean }
       if (err.message === CN_USER_STOP) {
         // 用户主动停止:保留已生成部分
-        if (acc) { const kept = [...next, { role: 'assistant' as const, content: acc, ts: Date.now() }]; setMessages(kept); persist(kept) }
+        if (acc) { const kept = [...next, { role: 'assistant' as const, content: acc, ts: Date.now() }]; setMessages(kept); void persistConv(kept) }
       } else if (!streamed) {
         // 流式通道不可用/前置报错 → 非流式降级(服务端前置校验错误会在这里重新抛出)
         try {
           const r = await cnChat(model, apiMsgs)
           const finalMsgs = [...next, { role: 'assistant' as const, content: r.content, ts: Date.now() }]
-          setMessages(finalMsgs); persist(finalMsgs)
+          setMessages(finalMsgs); void persistConv(finalMsgs)
         } catch (e2) {
           const err2 = e2 as Error & { status?: number; quota?: boolean }
           if (err2.status === 401) {
@@ -79,13 +134,13 @@ export default function ChatScreen() {
             return
           }
           const withErr = [...next, { role: 'assistant' as const, content: '⚠️ ' + (err2.message || '网络异常,请重试'), ts: Date.now() }]
-          setMessages(withErr); persist(withErr)
+          setMessages(withErr); void persistConv(withErr)
           if (err2.quota) Alert.alert('额度已用完', err2.message)
         }
       } else {
         // 中途断流:保留已生成内容并标注
         const kept = [...next, { role: 'assistant' as const, content: acc + '\n\n(网络中断,内容可能不完整)', ts: Date.now() }]
-        setMessages(kept); persist(kept)
+        setMessages(kept); void persistConv(kept)
       }
     } finally {
       setBusy(false); cnActiveCleanup()
@@ -95,9 +150,9 @@ export default function ChatScreen() {
   function stop() { cnStopStream() }
 
   function clearChat() {
-    Alert.alert('清空对话', '确定清空当前对话记录?(仅清本机)', [
+    Alert.alert('清空当前对话', '确定清空?(仅清本机当前会话)', [
       { text: '取消', style: 'cancel' },
-      { text: '清空', style: 'destructive', onPress: () => { setMessages([]); persist([]) } },
+      { text: '清空', style: 'destructive', onPress: newConversation },
     ])
   }
 
@@ -105,15 +160,44 @@ export default function ChatScreen() {
 
   return (
     <KeyboardAvoidingView style={[s.wrap, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      {/* 顶栏:模型选择 + 清空 */}
+      {/* 顶栏:历史 / 模型选择 / 新对话 */}
       <View style={s.topbar}>
+        <TouchableOpacity style={s.modelBtn} onPress={openHistory} activeOpacity={0.8}>
+          <Text style={s.modelTx}>🕘 历史{history.length ? ` ${history.length}` : ''}</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={s.modelBtn} onPress={() => setShowModels((v) => !v)} activeOpacity={0.8}>
           <Text style={s.modelTx}>🤖 {modelInfo.name} ▾</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.clearBtn} onPress={clearChat}>
-          <Text style={s.clearTx}>清空</Text>
+        <TouchableOpacity style={s.clearBtn} onPress={newConversation} disabled={busy}>
+          <Text style={s.clearTx}>＋ 新对话</Text>
         </TouchableOpacity>
       </View>
+
+      {/* 历史抽屉 */}
+      {showHistory && (
+        <View style={s.histMask} onTouchEnd={() => setShowHistory(false)}>
+          <View style={s.histPanel} onTouchEnd={(e) => e.stopPropagation()}>
+            <Text style={s.histTitle}>历史对话(仅存本机)</Text>
+            <FlatList
+              data={history}
+              keyExtractor={(c) => c.id}
+              style={{ maxHeight: 380 }}
+              ListEmptyComponent={<Text style={s.histEmpty}>还没有历史对话</Text>}
+              renderItem={({ item }) => (
+                <View style={[s.histRow, item.id === convId && s.histRowOn]}>
+                  <TouchableOpacity style={{ flex: 1 }} onPress={() => pickConversation(item.id)}>
+                    <Text style={s.histName} numberOfLines={1}>{item.title || '新对话'}</Text>
+                    <Text style={s.histMeta}>{CN_MODELS.find((m) => m.id === item.model)?.name || item.model} · {new Date(item.updatedAt).toLocaleString('zh-CN')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={s.histDel} onPress={() => removeConversation(item.id)}>
+                    <Text style={{ color: C.red, fontSize: 12 }}>删除</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            />
+          </View>
+        </View>
+      )}
 
       {showModels && (
         <View style={s.modelPanel}>
@@ -197,4 +281,13 @@ const s = StyleSheet.create({
   input: { flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 12, color: C.text, fontSize: 15, padding: 11, maxHeight: 120 },
   sendBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.teal, alignItems: 'center', justifyContent: 'center' },
   sendTx: { color: '#04140e', fontSize: 19, fontWeight: '700' },
+  histMask: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,.55)', zIndex: 30, justifyContent: 'center', padding: 20 },
+  histPanel: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14, maxHeight: 460 },
+  histTitle: { color: C.text, fontSize: 14, fontWeight: '700', marginBottom: 10 },
+  histEmpty: { color: C.muted, fontSize: 13, textAlign: 'center', padding: 20 },
+  histRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, marginBottom: 4 },
+  histRowOn: { backgroundColor: C.tealDim },
+  histName: { color: C.text, fontSize: 13.5 },
+  histMeta: { color: C.muted, fontSize: 11, marginTop: 2 },
+  histDel: { padding: 8 },
 })
