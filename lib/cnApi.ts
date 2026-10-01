@@ -253,3 +253,18 @@ export async function cnFileExtract(filename: string, contentB64: string): Promi
     return { ok: false, error: e instanceof Error ? e.message : '提取失败' }
   }
 }
+
+// ── 套餐与额度(plan_info:与网页「我的套餐」同源)──
+export type CnPlan = {
+  plan: string; label: string; limit: number; scope: 'day' | 'month'
+  used: number; remaining: number; expires: string | null
+}
+export async function cnPlanInfo(): Promise<CnPlan | null> {
+  const session = await getCnSession()
+  if (!session) return null
+  try {
+    const j = await post('/crm-api', { action: 'plan_info', session_token: session.token })
+    if (!j.ok) return null
+    return { plan: j.plan, label: j.label, limit: j.limit, scope: j.scope, used: j.used, remaining: j.remaining, expires: j.expires ?? null }
+  } catch { return null }
+}

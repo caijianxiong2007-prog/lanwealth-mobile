@@ -2,7 +2,7 @@
   "expo": {
     "name": "白泽Bayze",
     "slug": "lanwealth-cn-mobile",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "runtimeVersion": {
       "policy": "fingerprint"
@@ -23,7 +23,9 @@
       "bundleIdentifier": "cn.lanwealth.baize",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSpeechRecognitionUsageDescription": "Allow Bayze to recognize your speech so you can dictate messages.",
+        "NSMicrophoneUsageDescription": "Allow Bayze to use the microphone for voice input."
       }
     },
     "android": {
@@ -31,7 +33,10 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0f0d"
       },
-      "package": "cn.lanwealth.baize"
+      "package": "cn.lanwealth.baize",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -94,8 +99,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "262711cc-a1c2-4fd8-9e77-ad482072c6de"
-      }
+        "projectId": "a7d79a89-404c-4795-a6f6-76428b4b638b"
+      },
+      "router": {}
     }
   }
 }
