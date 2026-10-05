@@ -27,3 +27,7 @@ google-play-key.json
 *.tsbuildinfo
 sess-*.json
 .mimosa/
+
+# 本地 prebuild 产物(本地构建用, 不入库; 含 Pods 与本机签名补丁)
+ios/
+android/

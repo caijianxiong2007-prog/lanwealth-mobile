@@ -67,6 +67,35 @@ async function post(path: string, body: Record<string, unknown>, timeoutMs = 200
   }
 }
 
+// ── 图片文字识别(拍照/相册 → qwen-vl-ocr → 文本;2 点/次,失败不扣)──
+export async function cnOcr(image: string): Promise<{ ok: boolean; text?: string; error?: string }> {
+  const session = await getCnSession()
+  if (!session) return { ok: false, error: '会话已过期,请重新登录' }
+  try {
+    const res = await fetch(`${CN_BASE}/api`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ocr', session_token: session.token, image }),
+    })
+    const j = await res.json().catch(() => ({}))
+    if (!res.ok || j.error) return { ok: false, error: j.error || '识别失败' }
+    return { ok: true, text: j.text || '' }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '网络异常' }
+  }
+}
+
+// ── 账号注销申请(App 内发起,Apple 5.1.1(v) 要求;顾问电话核实后执行,与网页端同款)──
+export async function cnAccountDelete(): Promise<{ ok: boolean; dedup?: boolean; error?: string }> {
+  try {
+    const session = await getCnSession()
+    if (!session) return { ok: false, error: '会话已过期,请重新登录' }
+    const j = await post('/crm-api', { action: 'account_delete_request', session_token: session.token })
+    return { ok: !!j.ok, dedup: !!j.dedup }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '提交失败' }
+  }
+}
+
 // ── 登录:手机号验证码(登注合一;与网页端同款)──
 export type CnResult = { ok: boolean; error?: string }
 
@@ -95,15 +124,20 @@ export async function cnLogout(): Promise<void> {
 }
 
 // ── 模型目录(与 cn-chat MODELS 同源;写死兜底,后续可换服务端 /api models 下发)──
+// bayze-auto=Bayze 智选(瀑布式):服务端按问题类别选专家模型(Kimi/GLM/豆包)做专长分析,
+// 再由 DeepSeek V4 Pro 独立核对合成终稿——与网页端 chat.html 同一通道(cn-chat/cn-stream 已支持)。
 export const CN_MODELS = [
+  { id: 'bayze-auto',          name: 'Bayze 智选',           tag: '专家分析+高阶综合', free: false },
   { id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', tag: '快速',  free: true  },
   { id: 'deepseek-v4-pro',     name: 'DeepSeek V4 Pro',     tag: '推理',  free: false },
   { id: 'glm-5.3-flash',       name: '智谱 GLM-5.3 Flash',  tag: '快速',  free: false },
   { id: 'doubao-seed-pro',     name: '豆包 Seed 2.1 Pro',   tag: '均衡',  free: false },
   { id: 'kimi-k2.7',           name: 'Kimi K2.7',           tag: '长文',  free: false },
+  { id: 'qwen-vl-max',         name: '千问 VL Max',         tag: '看图',  free: false },
 ]
 
-export type CnMessage = { role: 'user' | 'assistant' | 'system'; content: string }
+// content 支持多模态数组(带图提问: [{type:'text'},{type:'image_url',image_url:{url:'data:...'}}])
+export type CnMessage = { role: 'user' | 'assistant' | 'system'; content: string | Array<Record<string, unknown>> }
 
 // ── 对话(非流式;cn-chat 按活跃企业岗位自动注入人设、按额度闸门)──
 export async function cnChat(
@@ -114,7 +148,8 @@ export async function cnChat(
   const session = await getCnSession()
   if (!session) throw Object.assign(new Error('会话已过期,请重新登录'), { status: 401 })
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 60000)
+  // 瀑布式(智选)双跳:服务端专家 25s + 终审 30s,非流式兜底放宽到 110s,普通模型维持 60s
+  const timer = setTimeout(() => ctrl.abort(), model === 'bayze-auto' ? 110_000 : 60_000)
   const onOuterAbort = () => ctrl.abort()
   opts?.signal?.addEventListener('abort', onOuterAbort)
   try {

@@ -1,10 +1,12 @@
-// 大陆版设置页(cn 分支,v2):账号 + 套餐/额度卡片(进度条+到期提醒) + 近 7 天用量 + 登出。
-// 续费/发票跳网页版 /billing(微信扫码支付,付款后自动开通)。
+// 大陆版设置页(cn 分支,v3):账号 + 套餐/额度卡片(进度条+到期提醒) + 近 7 天用量 + 注销 + 登出。
+// 续费/发票跳网页版 /billing(微信扫码支付,付款后自动开通)—— 仅 Android;
+// iOS 提审口径(Guideline 3.1.1/3.1.3 多平台模式):不展示任何购买/续费入口与外链,
+// 用户在网页付款后回 App 登录即用(已购服务访问)。App 内提供注销入口(5.1.1(v))与隐私政策链接。
 import { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Linking } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Linking, Platform, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { getCnSession, cnLogout, cnUsage, cnPlanInfo, CN_BASE, type CnUsage, type CnPlan } from '../../lib/cnApi'
+import { getCnSession, cnLogout, cnUsage, cnPlanInfo, cnAccountDelete, CN_BASE, type CnUsage, type CnPlan } from '../../lib/cnApi'
 import { wipeConversations } from '../../lib/cnConversations'
 
 const C = {
@@ -12,12 +14,15 @@ const C = {
   teal: '#1aeba8', tealDim: 'rgba(26,235,168,.1)', red: '#e05656', amber: '#e8b432',
 }
 
+const isIOS = Platform.OS === 'ios'
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets()
   const [phone, setPhone]         = useState('')
   const [usage, setUsage]         = useState<CnUsage | null>(null)
   const [plan, setPlan]           = useState<CnPlan | null>(null)
   const [loading, setLoading]     = useState(true)
+  const [delBusy, setDelBusy]     = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -49,6 +54,31 @@ export default function SettingsScreen() {
     useRouter().replace('/(auth)/login')
   }
 
+  // 账号注销(App 内发起,5.1.1(v)):两段确认 → 提交申请(顾问电话核实后执行)
+  function delAccount() {
+    Alert.alert('申请注销账号', '注销后将删除该手机号名下的账号、知识库、文件、客户记忆与用量记录(法律要求留存的日志除外),不可恢复。\n\n继续吗?', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '继续', style: 'destructive', onPress: () => {
+          Alert.alert('最后确认', '提交后顾问将在 3 个工作日内电话联系你核实身份;核实通过后完成注销并短信告知。确定提交?', [
+            { text: '取消', style: 'cancel' },
+            { text: '提交注销申请', style: 'destructive', onPress: () => { void doDelete() } },
+          ])
+        },
+      },
+    ])
+  }
+  async function doDelete() {
+    setDelBusy(true)
+    try {
+      const r = await cnAccountDelete()
+      if (r.ok) Alert.alert('注销申请已提交', r.dedup ? '你近 24 小时内已提交过申请,已自动合并。' : '顾问将在 3 个工作日内电话联系你核实身份;核实通过后完成注销并短信告知。')
+      else Alert.alert('提交失败', r.error || '请稍后再试,或通过公众号「白泽 Bayze」联系')
+    } finally {
+      setDelBusy(false)
+    }
+  }
+
   return (
     <ScrollView style={[s.wrap, { paddingTop: insets.top }]} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
       <Text style={s.title}>我的</Text>
@@ -72,10 +102,13 @@ export default function SettingsScreen() {
             </View>
           </>
         )}
-        {expiring && (
+        {expiring && !isIOS && (
           <TouchableOpacity style={s.renewBtn} onPress={() => Linking.openURL(CN_BASE + '/billing')} activeOpacity={0.8}>
             <Text style={s.renewTx}>⏰ 即将到期 · 去续费(微信支付自动开通)→</Text>
           </TouchableOpacity>
+        )}
+        {expiring && isIOS && (
+          <View style={s.renewBtn}><Text style={s.renewTx}>⏰ 套餐即将到期</Text></View>
         )}
       </View>
 
@@ -94,19 +127,37 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      <Text style={s.sec}>完整功能</Text>
+      {/* 网页版功能入口(含购买引导,iOS 提审口径整卡隐藏 —— Guideline 3.1.1) */}
+      {!isIOS && (
+        <>
+          <Text style={s.sec}>完整功能</Text>
+          <View style={s.card}>
+            <TouchableOpacity style={s.row} onPress={() => Linking.openURL(CN_BASE + '/me')}>
+              <Text style={s.rowLabel}>用量明细与充值记录</Text>
+              <Text style={s.link}>网页版 ↗</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.row} onPress={() => Linking.openURL(CN_BASE + '/billing')}>
+              <Text style={s.rowLabel}>续费与发票(微信支付)</Text>
+              <Text style={s.link}>网页版 ↗</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.row, { borderBottomWidth: 0 }]} onPress={() => Linking.openURL(CN_BASE + '/team')}>
+              <Text style={s.rowLabel}>我的企业/团队</Text>
+              <Text style={s.link}>网页版 ↗</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+
+      {/* 合规链接(双端保留:隐私政策/用户协议是审核必需,允许外链) */}
+      <Text style={s.sec}>法律与隐私</Text>
       <View style={s.card}>
-        <TouchableOpacity style={s.row} onPress={() => Linking.openURL(CN_BASE + '/me')}>
-          <Text style={s.rowLabel}>用量明细与充值记录</Text>
-          <Text style={s.link}>网页版 ↗</Text>
+        <TouchableOpacity style={s.row} onPress={() => Linking.openURL(CN_BASE + '/privacy')}>
+          <Text style={s.rowLabel}>隐私政策</Text>
+          <Text style={s.link}>↗</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.row} onPress={() => Linking.openURL(CN_BASE + '/billing')}>
-          <Text style={s.rowLabel}>续费与发票(微信支付)</Text>
-          <Text style={s.link}>网页版 ↗</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[s.row, { borderBottomWidth: 0 }]} onPress={() => Linking.openURL(CN_BASE + '/team')}>
-          <Text style={s.rowLabel}>我的企业/团队</Text>
-          <Text style={s.link}>网页版 ↗</Text>
+        <TouchableOpacity style={[s.row, { borderBottomWidth: 0 }]} onPress={() => Linking.openURL(CN_BASE + '/terms')}>
+          <Text style={s.rowLabel}>用户服务协议</Text>
+          <Text style={s.link}>↗</Text>
         </TouchableOpacity>
       </View>
 
@@ -114,7 +165,12 @@ export default function SettingsScreen() {
         <Text style={s.btnDangerTx}>退出登录</Text>
       </TouchableOpacity>
 
-      <Text style={s.foot}>白泽 Bayze 大陆版 v0.2.0 · 数据存储于境内</Text>
+      {/* 账号注销(5.1.1(v):支持注册即须支持 App 内发起注销) */}
+      <TouchableOpacity style={[s.btn, s.btnDanger, { marginTop: 8 }]} onPress={delAccount} disabled={delBusy} activeOpacity={0.8}>
+        <Text style={s.btnDangerTx}>{delBusy ? '提交中…' : '注销账号'}</Text>
+      </TouchableOpacity>
+
+      <Text style={s.foot}>白泽 Bayze 大陆版 v0.2.3 · 数据存储于境内</Text>
     </ScrollView>
   )
 }

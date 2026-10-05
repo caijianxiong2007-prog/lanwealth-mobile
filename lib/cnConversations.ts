@@ -2,13 +2,13 @@
 // 存储按手机号命名空间(国际版 2026-08-31 串号事故教训:同机换账号登录,
 // 后来者会把前面人的本地会话"捡"进自己名下 —— 这里键随账号走,且登出即弃)。
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import type { CnMessage } from './cnApi'
 
+// 本地会话仅存纯文本(图片等二进制不落本地仓;多模态只在发送时组装)
 export type CnConversation = {
   id: string
   title: string
   model: string
-  messages: CnMessage[]
+  messages: { role: 'user' | 'assistant' | 'system'; content: string }[]
   updatedAt: number
 }
 

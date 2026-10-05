@@ -43,6 +43,13 @@
         "track": "internal",
         "releaseStatus": "draft"
       }
+    },
+    "cn": {
+      "ios": {
+        "appleId": "1753901@qq.com",
+        "ascAppId": "6818379158",
+        "appleTeamId": "2473SV2X9M"
+      }
     }
   }
 }
