@@ -66,3 +66,61 @@ export async function dropConversation(phone: string, id: string): Promise<CnCon
 export async function wipeConversations(phone: string): Promise<void> {
   try { await AsyncStorage.removeItem(key(phone)) } catch {}
 }
+
+// ── 会话云同步(2026-10-07)───────────────────────────────────────────────────
+// 口径:本地仓(AsyncStorage)始终为主存,云端为同步副本。拉取=合并(updatedAt 新者
+// 胜,云端缺的本地条目回推);上推=单会话 upsert。全部尽力而为:断网/失败静默。
+// 保密红线:手机端当前无保密会话;若未来加,id 以 secret- 前缀的条目在此层跳过
+// (服务端 conversations_cn 无 secret 列 + conv_upsert 硬拒,双保险)。
+import { cnConvList, cnConvUpsert, cnConvDelete, CnCloudConv } from './cnApi'
+
+function fromCloud(rc: CnCloudConv): CnConversation {
+  return {
+    id: rc.conv_id,
+    title: (rc.title || '').slice(0, TITLE_LEN),
+    model: rc.model || 'bayze-auto',
+    messages: rc.messages.filter(m => m && typeof m.content === 'string' && (m.role === 'user' || m.role === 'assistant')),
+    updatedAt: rc.updated_at,
+  }
+}
+
+/** 登录后拉云端合并进本地(返回合并后列表);顺带把本地独有条目补推上云。 */
+export async function syncPullConversations(phone: string): Promise<CnConversation[]> {
+  let list = await loadConversations(phone)
+  try {
+    const cloud = await cnConvList()
+    const byId = new Map(list.map(c => [c.id, c]))
+    let changed = false
+    for (const rc of cloud) {
+      if (!rc.conv_id || rc.conv_id.startsWith('secret-')) continue   // 保密红线:云端不该有,有也不认
+      const conv = fromCloud(rc)
+      if (!conv.messages.length) continue
+      const local = byId.get(conv.id)
+      if (!local) { list = [conv, ...list]; byId.set(conv.id, conv); changed = true }
+      else if (conv.updatedAt > local.updatedAt) {
+        local.messages = conv.messages; local.updatedAt = conv.updatedAt
+        if (conv.title) local.title = conv.title
+        changed = true
+      }
+    }
+    if (changed) await saveConversations(phone, list)
+    // 本地独有(含首次上线的存量)补推
+    const cloudIds = new Set(cloud.map(rc => rc.conv_id))
+    for (const c of list) {
+      if (!c.id.startsWith('secret-') && c.messages.length && !cloudIds.has(c.id)) void cnConvUpsert(c)
+    }
+  } catch {}
+  return list.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_CONVERSATIONS)
+}
+
+/** 本地落库后异步上推单会话(调用方不用 await,尽力而为)。 */
+export function syncPushConversation(conv: CnConversation): void {
+  if (!conv.id || conv.id.startsWith('secret-') || !conv.messages.length) return
+  void cnConvUpsert(conv)
+}
+
+/** 删除会话同步上云(软删)。 */
+export function syncDeleteConversation(id: string): void {
+  if (id.startsWith('secret-')) return
+  void cnConvDelete(id)
+}

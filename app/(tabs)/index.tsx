@@ -13,13 +13,14 @@ import Svg, { Path } from 'react-native-svg'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system'
-import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, getCnSession, cnFileExtract, cnOcr, CN_USER_STOP, type CnMessage } from '../../lib/cnApi'
+import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, getCnSession, cnFileExtract, cnOcr, cnRagSearch, cnRagContext, CN_USER_STOP, type CnMessage } from '../../lib/cnApi'
 import { useShareIntentContext } from 'expo-share-intent'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import * as ImagePicker from 'expo-image-picker'
 import {
   loadConversations, upsertConversation, dropConversation, wipeConversations,
-  createConversationId, titleFrom, type CnConversation,
+  createConversationId, titleFrom, syncPullConversations, syncPushConversation, syncDeleteConversation,
+  type CnConversation,
 } from '../../lib/cnConversations'
 
 const C = {
@@ -44,6 +45,8 @@ export default function ChatScreen() {
   const [convId, setConvId]     = useState<string | null>(null)
   const [attach, setAttach]     = useState<{ name: string; chars: number; text: string } | null>(null)
   const [attachErr, setAttachErr] = useState<{ name: string; msg: string } | null>(null)
+  // 辅助办公命中标注(发送时检索,渲染在最新用户气泡下,与网页端同款语义)
+  const [ragTags, setRagTags] = useState<{ src: 'kb' | 'mem'; label: string }[]>([])
   const [imgAttach, setImgAttach] = useState<string | null>(null)   // 图片附件(原图 base64,走视觉模型看图)
   const [attachBusy, setAttachBusy] = useState(false)
   const [listening, setListening] = useState(false)   // 语音听写中
@@ -141,7 +144,8 @@ export default function ChatScreen() {
     ;(async () => {
       const s = await getCnSession()
       if (!s) return
-      const list = await loadConversations(s.phone)
+      // 云同步:登录后先拉云端合并(本地为主存,ts 新者胜;本地独有条目回推)
+      const list = await syncPullConversations(s.phone)
       setHistory(list)
       if (list.length) {
         setConvId(list[0].id)
@@ -176,6 +180,7 @@ export default function ChatScreen() {
     const s = await getCnSession()
     if (!s) return
     const list = await dropConversation(s.phone, id)
+    syncDeleteConversation(id)   // 云同步:软删上云
     setHistory(list)
     if (id === convId) newConversation()
   }
@@ -193,6 +198,7 @@ export default function ChatScreen() {
     }
     setConvId(conv.id)
     setHistory(await upsertConversation(s.phone, conv))
+    syncPushConversation(conv)   // 云同步:异步上推,尽力而为(保密 id 前缀在内层跳过)
   }
 
   async function pickAttachment() {
@@ -270,6 +276,21 @@ export default function ChatScreen() {
       }
       return { role: m.role, content: m.content }
     })
+    // 辅助办公检索(2026-10-07,与网页 RAG 同源):知识库+客户记忆并行检索,
+    // 命中注入 system 上下文;纯尽力而为,失败不打断发送。图片轮不检索。
+    let ragHits: { src: 'kb' | 'mem'; label: string }[] = []
+    if (!imgB64 && text.length >= 4) {
+      try {
+        const hits = await cnRagSearch(text)
+        const ctx = cnRagContext(hits)
+        if (ctx) apiMsgs.unshift({ role: 'system', content: ctx })
+        ragHits = [
+          ...hits.filter(h => h.src === 'kb').map(() => ({ src: 'kb' as const, label: '📚' })),
+          ...hits.filter(h => h.src === 'mem').map(() => ({ src: 'mem' as const, label: '🧠' })),
+        ]
+      } catch {}
+    }
+    setRagTags(ragHits)
     // 文档附件上下文注入(与网页端同款:用一次即清)
     if (attach) {
       apiMsgs.unshift({ role: 'system', content: '以下是用户上传的文件内容,作为回答的参考依据:\n\n' + attach.text.slice(0, 6000) })
@@ -506,6 +527,13 @@ export default function ChatScreen() {
       {tip ? <View style={s.tipPop}><Text style={s.tipTx}>{tip}</Text></View> : null}
 
       {/* 附件预览条(图片=视觉理解;文档=文本提取;失败=红条留名+原因+建议) */}
+      {ragTags.length > 0 && !busy && (
+        <Text style={{ color: C.teal, fontSize: 11, opacity: 0.85, marginBottom: 6 }}>
+          已附 {ragTags.filter(t => t.src === 'kb').length > 0 ? `📚 知识库 ${ragTags.filter(t => t.src === 'kb').length} 条` : ''}
+          {ragTags.filter(t => t.src === 'kb').length > 0 && ragTags.filter(t => t.src === 'mem').length > 0 ? ' · ' : ''}
+          {ragTags.filter(t => t.src === 'mem').length > 0 ? `🧠 客户记忆 ${ragTags.filter(t => t.src === 'mem').length} 条` : ''} 参考
+        </Text>
+      )}
       {attachErr && (
         <View style={[s.attachBar, { borderColor: 'rgba(224,86,86,.4)', backgroundColor: 'rgba(224,86,86,.06)' }]}>
           <Text style={s.attachTx} numberOfLines={2}>📎 {attachErr.name} ✗ {attachErr.msg}</Text>

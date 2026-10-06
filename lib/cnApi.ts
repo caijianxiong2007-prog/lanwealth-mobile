@@ -303,3 +303,73 @@ export async function cnPlanInfo(): Promise<CnPlan | null> {
     return { plan: j.plan, label: j.label, limit: j.limit, scope: j.scope, used: j.used, remaining: j.remaining, expires: j.expires ?? null }
   } catch { return null }
 }
+
+// ── 会话云同步(2026-10-07):同账号手机/网页普通对话互通 ──
+// 与网页端同款三动作;失败一律静默(本地仓始终可用,同步是尽力而为)。
+export type CnCloudConv = { conv_id: string; title: string; model: string | null; messages: { role: 'user' | 'assistant'; content: string }[]; updated_at: number }
+
+export async function cnConvList(): Promise<CnCloudConv[]> {
+  const session = await getCnSession()
+  if (!session) return []
+  try {
+    const j = await post('/crm-api', { action: 'conv_list', session_token: session.token }, 20000)
+    if (j.ok !== true || !Array.isArray(j.conversations)) return []
+    return j.conversations as CnCloudConv[]
+  } catch { return [] }
+}
+
+export async function cnConvUpsert(conv: { id: string; title: string; model?: string; messages: { role: string; content: string }[]; updatedAt: number }): Promise<void> {
+  const session = await getCnSession()
+  if (!session) return
+  try {
+    await post('/crm-api', {
+      action: 'conv_upsert', session_token: session.token,
+      conv_id: conv.id.slice(0, 64), title: conv.title.slice(0, 120),
+      model: (conv.model || '').slice(0, 40) || undefined,
+      messages: conv.messages.filter(m => typeof m.content === 'string').slice(-200),
+      updated_at: conv.updatedAt,
+    })
+  } catch { /* 静默 */ }
+}
+
+export async function cnConvDelete(convId: string): Promise<void> {
+  const session = await getCnSession()
+  if (!session) return
+  try { await post('/crm-api', { action: 'conv_delete', session_token: session.token, conv_id: convId.slice(0, 64) }) } catch { /* 静默 */ }
+}
+
+// ── 辅助办公检索(与网页 RAG 同源:知识库+客户记忆,0.45 阈值,top3)──
+export type CnRagHit =
+  | { src: 'kb'; title: string; content: string; score: number }
+  | { src: 'mem'; company: string; contact: string | null; facts: string; score: number }
+
+export async function cnRagSearch(q: string): Promise<CnRagHit[]> {
+  if (!q || q.length < 4) return []
+  const session = await getCnSession()
+  if (!session) return []
+  const search = async (action: string, extra: Record<string, unknown> = {}) => {
+    try {
+      const j = await post('/crm-api', { action, session_token: session.token, q, ...extra })
+      if (j.ok !== true || !Array.isArray(j.items)) return []
+      return (j.items as Array<Record<string, any>>).filter(it => Number(it.score) >= 0.45)
+    } catch { return [] }
+  }
+  const [kb, mem] = await Promise.all([search('knowledge_search'), search('memory_search')])
+  const kbHits: CnRagHit[] = kb.filter(it => it.content).slice(0, 3)
+    .map(it => ({ src: 'kb', title: String(it.title || ''), content: String(it.content || ''), score: Number(it.score) }))
+  const memHits: CnRagHit[] = mem.filter(it => it.facts).slice(0, 3)
+    .map(it => ({ src: 'mem', company: String(it.company || ''), contact: it.contact ?? null, facts: String(it.facts || ''), score: Number(it.score) }))
+  return [...kbHits, ...memHits]
+}
+
+export function cnRagContext(hits: CnRagHit[]): string | null {
+  const kb = hits.filter(h => h.src === 'kb')
+  const mem = hits.filter(h => h.src === 'mem')
+  if (!kb.length && !mem.length) return null
+  const parts: string[] = []
+  if (kb.length) parts.push('以下是用户知识库中与本次提问语义相关的参考内容(若与提问无关请忽略,回答时不要提及"知识库"):\n\n' +
+    kb.map(h => '【' + h.title + '】\n' + h.content.slice(0, 400)).join('\n\n'))
+  if (mem.length) parts.push('以下是用户客户记忆中与本次提问语义相关的客户资料(若与提问无关请忽略,回答时不要提及"客户记忆"):\n\n' +
+    mem.map(h => '【客户:' + h.company + (h.contact ? ' · ' + h.contact : '') + '】\n' + h.facts.slice(0, 500)).join('\n\n'))
+  return parts.join('\n\n')
+}
