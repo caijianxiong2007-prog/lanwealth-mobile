@@ -2,7 +2,7 @@
   "expo": {
     "name": "白泽Bayze",
     "slug": "lanwealth-cn-mobile",
-    "version": "0.2.12",
+    "version": "0.2.13",
     "orientation": "portrait",
     "runtimeVersion": {
       "policy": "fingerprint"
@@ -21,7 +21,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "cn.lanwealth.baize",
-      "buildNumber": "1",
+      "buildNumber": "37",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSSpeechRecognitionUsageDescription": "Allow Bayze to recognize your speech so you can dictate messages.",

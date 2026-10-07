@@ -16,6 +16,10 @@ const C = {
 
 const isIOS = Platform.OS === 'ios'
 
+// APP 备案号(工作清单 2.1):工信部下发后把 APP_ICP 填上号码 → 重新构建即展示
+const APP_ICP = ''
+const APP_VERSION = '0.2.13'
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets()
   const [phone, setPhone]         = useState('')
@@ -159,6 +163,11 @@ export default function SettingsScreen() {
           <Text style={s.rowLabel}>用户服务协议</Text>
           <Text style={s.link}>↗</Text>
         </TouchableOpacity>
+        {APP_ICP ? (
+          <View style={[s.row, { borderBottomWidth: 0 }]}>
+            <Text style={[s.rowLabel, { flex: 1 }]}>{`APP 备案:${APP_ICP}`}</Text>
+          </View>
+        ) : null}
       </View>
 
       <TouchableOpacity style={[s.btn, s.btnDanger]} onPress={logout}>
@@ -170,7 +179,7 @@ export default function SettingsScreen() {
         <Text style={s.btnDangerTx}>{delBusy ? '提交中…' : '注销账号'}</Text>
       </TouchableOpacity>
 
-      <Text style={s.foot}>白泽 Bayze 大陆版 v0.2.3 · 数据存储于境内</Text>
+      <Text style={s.foot}>{`白泽 Bayze 大陆版 v${APP_VERSION} · 数据存储于境内`}</Text>
     </ScrollView>
   )
 }
