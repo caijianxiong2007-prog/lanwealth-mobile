@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { normalizeInternationalBase } from './internationalOrigin'
 
 // ── API 基址多域名自动切换(2026-08-02)────────────────────────────────────────
 // 背景:lanwealth.com 的 TLS SNI 在大陆部分线路被注入式 RST 阻断(实测石锤)。
@@ -6,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 // /api/app-config 首个 2xx 即选定(轻量+CDN 缓存;勿用 /api/health——它会触发服务端
 // 对 Atlas/LiteLLM 的实时外呼,重且慢)。备用域名注册后只需扩充 SEED_BASES 或服务端
 // 下发(env 驱动),客户端零发版点亮。Supabase 直连域(*.supabase.co)不受阻断,登录不经此层。
-export const SEED_BASES = ['https://app.lanwealth.com', 'https://app.bayze.cn']   // 种子:主域 + 备用域(2026-08-02 注册)
+export const SEED_BASES = ['https://app.lanwealth.com'] // 旧备用域已转为大陆版,不得跨版切换。
 
 const KEY_LAST_GOOD  = 'base_last_good'     // 上次可用基址
 const KEY_REMOTE     = 'base_remote_list'   // 服务端下发列表 { domains, fetchedAt }
@@ -19,11 +20,7 @@ let resolving:   Promise<string> | null = null   // 并发防抖:同一时刻只
 let lastAllFailedAt = 0
 
 // 规范化:补 https:// 前缀、去尾斜杠;空值返回 null
-function normalize(u: string | null | undefined): string | null {
-  const t = (u ?? '').trim()
-  if (!t) return null
-  return (/^https?:\/\//i.test(t) ? t : `https://${t}`).replace(/\/+$/, '')
-}
+const normalize = normalizeInternationalBase
 
 async function probe(base: string): Promise<boolean> {
   const ctrl  = new AbortController()
