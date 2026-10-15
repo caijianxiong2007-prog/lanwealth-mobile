@@ -43,6 +43,28 @@ export async function clearCnSession(): Promise<void> {
   await kvDel(PHONE_KEY)
 }
 
+// ── 401 统一登出(P1-08,2026-10-15):令牌过期/撤销 → 原子清会话 + 单次跳登录 ──
+// 多个在途请求同时 401 时只清理+跳转一次(handling401 单飞);1.5s 后复位,
+// 允许下一次会话过期再次触发。handler 由根布局注册(router.replace),lib 层不引导航。
+let unauthorizedHandler: (() => void) | null = null
+let handling401 = false
+export function setCnUnauthorizedHandler(fn: (() => void) | null): void {
+  unauthorizedHandler = fn
+}
+export function unauthorizedMessage(): string {
+  return '登录已过期,请重新登录'
+}
+async function on401(): Promise<void> {
+  if (handling401) return
+  handling401 = true
+  try {
+    await clearCnSession()
+    if (unauthorizedHandler) { try { unauthorizedHandler() } catch {} }
+  } finally {
+    setTimeout(() => { handling401 = false }, 1500)
+  }
+}
+
 // ── 统一请求(JSON POST;20s 超时)──
 async function post(path: string, body: Record<string, unknown>, timeoutMs = 20000): Promise<Record<string, any>> {
   const ctrl = new AbortController()
@@ -55,6 +77,14 @@ async function post(path: string, body: Record<string, unknown>, timeoutMs = 200
       signal: ctrl.signal,
     })
     const j = await res.json().catch(() => ({}))
+    if (res.status === 401) {
+      // P1-08:统一 401——清会话+跳登录后再抛,调用方按普通错误提示即可
+      await on401()
+      const err = new Error(unauthorizedMessage()) as Error & { status?: number; unauthorized?: boolean }
+      err.status = 401
+      err.unauthorized = true
+      throw err
+    }
     if (!res.ok || j.error) {
       const err = new Error(j.error || `请求失败(${res.status})`) as Error & { status?: number; quota?: boolean }
       err.status = res.status
@@ -77,6 +107,7 @@ export async function cnOcr(image: string): Promise<{ ok: boolean; text?: string
       body: JSON.stringify({ action: 'ocr', session_token: session.token, image }),
     })
     const j = await res.json().catch(() => ({}))
+    if (res.status === 401) { await on401(); return { ok: false, error: unauthorizedMessage() } }
     if (!res.ok || j.error) return { ok: false, error: j.error || '识别失败' }
     return { ok: true, text: j.text || '' }
   } catch (e) {
@@ -99,9 +130,10 @@ export async function cnAccountDelete(): Promise<{ ok: boolean; dedup?: boolean;
 // ── 登录:手机号验证码(登注合一;与网页端同款)──
 export type CnResult = { ok: boolean; error?: string }
 
-export async function cnOtpSend(phone: string): Promise<CnResult> {
+// consent(P0-02):登录页协议同意留痕,随发码请求上送,服务端写 account_consents
+export async function cnOtpSend(phone: string, consent?: { version: string; channel?: string; device?: string }): Promise<CnResult> {
   try {
-    await post('/api', { action: 'otp_send', phone })
+    await post('/api', { action: 'otp_send', phone, ...(consent ? { consent } : {}) })
     return { ok: true }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '发送失败' }

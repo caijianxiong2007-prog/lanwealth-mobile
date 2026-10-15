@@ -1,6 +1,6 @@
 {
   "name": "lanwealth-mobile",
-  "version": "1.3.4",
+  "version": "0.2.13",
   "main": "expo-router/entry",
   "scripts": {
     "postinstall": "node scripts/patch-xcode.js",
@@ -10,8 +10,7 @@
     "build:android:preview": "eas build --platform android --profile preview",
     "build:android:production": "eas build --platform android --profile production",
     "build:ios:production": "eas build --platform ios --profile production",
-    "test:chat-isolation": "node scripts/chat-isolation-selftest.mjs",
-    "test": "npm run test:chat-isolation"
+    "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cn-*.test.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.0",

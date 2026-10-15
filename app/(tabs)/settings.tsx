@@ -5,6 +5,8 @@
 import { useEffect, useState } from 'react'
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Linking, Platform, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useRouter } from 'expo-router'
+import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getCnSession, cnLogout, cnUsage, cnPlanInfo, cnAccountDelete, CN_BASE, type CnUsage, type CnPlan } from '../../lib/cnApi'
 import { wipeConversations } from '../../lib/cnConversations'
@@ -16,12 +18,14 @@ const C = {
 
 const isIOS = Platform.OS === 'ios'
 
-// APP 备案号(工作清单 2.1):工信部下发后把 APP_ICP 填上号码 → 重新构建即展示
-const APP_ICP = ''
-const APP_VERSION = '0.2.13'
+// APP 备案号(2026-10-15 工信部已下发)
+const APP_ICP = '沪ICP备2026047002号-3A'
+// 版本单一真值(P1-09):取自 app.json(expoConfig),本地兜底与构建核对用
+const APP_VERSION = Constants.expoConfig?.version || '0.2.13'
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets()
+  const router = useRouter()
   const [phone, setPhone]         = useState('')
   const [usage, setUsage]         = useState<CnUsage | null>(null)
   const [plan, setPlan]           = useState<CnPlan | null>(null)
@@ -50,12 +54,17 @@ export default function SettingsScreen() {
   const daysLeft = plan?.expires ? Math.ceil((new Date(plan.expires).getTime() - Date.now()) / 86400000) : null
   const expiring = daysLeft !== null && daysLeft <= 7
 
+  // 退出登录(P0-01 修复):useRouter 必须在组件顶层调用——事件处理器里动态调用
+  // 属于 React Hooks 规则违例(Invalid hook call)。清理尽力而为,跳转必须执行。
   async function logout() {
-    const s = await getCnSession()
-    if (s) await wipeConversations(s.phone)   // 会话仅存本机:登出即清,不留给下一账号
-    await cnLogout()
-    const { useRouter } = await import('expo-router')
-    useRouter().replace('/(auth)/login')
+    try {
+      const s = await getCnSession()
+      if (s) await wipeConversations(s.phone)   // 会话仅存本机:登出即清,不留给下一账号
+      await cnLogout()
+    } catch (e) {
+      // 即使清理抛错也必须离开已登录界面(令牌清理失败时登录页会再次触发登出)
+    }
+    router.replace('/(auth)/login')
   }
 
   // 账号注销(App 内发起,5.1.1(v)):两段确认 → 提交申请(顾问电话核实后执行)

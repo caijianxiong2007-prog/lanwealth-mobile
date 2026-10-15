@@ -6,13 +6,19 @@ import { StatusBar }                   from 'expo-status-bar'
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context'
 import { ShareIntentProvider }         from 'expo-share-intent'
 import { useRouter, useSegments }      from 'expo-router'
-import { getCnSession }                from '../lib/cnApi'
+import { getCnSession, setCnUnauthorizedHandler } from '../lib/cnApi'
 
 export default function RootLayout() {
   const router   = useRouter()
   const segments = useSegments()
   const inAuth   = segments[0] === '(auth)'
   const [ready, setReady] = useState(false)
+
+  // P1-08:统一 401 跳登——cnApi 层检测到令牌过期/撤销时回调(单飞,多请求只跳一次)
+  useEffect(() => {
+    setCnUnauthorizedHandler(() => router.replace('/(auth)/login'))
+    return () => setCnUnauthorizedHandler(null)
+  }, [router])
 
   useEffect(() => {
     let mounted = true
