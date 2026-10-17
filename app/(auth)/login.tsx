@@ -97,6 +97,9 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
         )}
+        <TouchableOpacity style={s.demoBtn} onPress={() => router.push('/(auth)/demo')} accessibilityRole="button" activeOpacity={0.8}>
+          <Text style={s.demoTx}>无需登录，体验演示</Text>
+        </TouchableOpacity>
 
         {error ? <Text style={s.err}>{error}</Text> : null}
 
@@ -145,4 +148,6 @@ const s = StyleSheet.create({
   agreeLink: { color: C.teal },
   btn: { backgroundColor: C.teal, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 4 },
   btnTx: { color: '#04140e', fontSize: 15, fontWeight: '700' },
+  demoBtn: { minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  demoTx: { color: C.teal, fontSize: 14 },
 })

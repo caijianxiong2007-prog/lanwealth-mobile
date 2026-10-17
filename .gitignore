@@ -23,6 +23,10 @@ store-screenshots/
 # Google Play service account key — NEVER commit
 google-play-key.json
 
+# EAS local signing credentials
+credentials.json
+credentials/
+
 # TypeScript 增量编译缓存
 *.tsbuildinfo
 sess-*.json

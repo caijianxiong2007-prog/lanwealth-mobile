@@ -21,7 +21,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "cn.lanwealth.baize",
-      "buildNumber": "37",
+      "buildNumber": "39",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSSpeechRecognitionUsageDescription": "用于语音输入:将你说的话识别为文字后发送,不用于其他用途。",
@@ -83,15 +83,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Bayze to attach photos from your library to your chat.",
-          "cameraPermission": "Allow Bayze to take a photo to attach to your chat."
+          "photosPermission": "用于选择你指定的照片并添加到对话，不读取其他照片。",
+          "cameraPermission": "用于按你的操作拍摄照片并添加到对话，不在后台拍摄。"
         }
       ],
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow Bayze to use the microphone for voice input.",
-          "speechRecognitionPermission": "Allow Bayze to recognize your speech so you can dictate messages."
+          "microphonePermission": "用于语音输入：仅在你操作语音输入时使用麦克风。",
+          "speechRecognitionPermission": "用于将你主动口述的内容转换为文字，供你确认后发送。"
         }
       ]
     ],

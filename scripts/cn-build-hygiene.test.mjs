@@ -73,4 +73,18 @@ test('iOS 权限说明已中文化(无英文占位)', () => {
   const descs = Object.values(app.expo.ios?.infoPlist || {}).filter((v) => typeof v === 'string')
   assert.ok(descs.length >= 2, '未找到 iOS 权限说明')
   for (const d of descs) assert.ok(!/^(Allow|Use) /.test(d), `仍有英文权限说明:${d}`)
+  for (const plugin of app.expo.plugins) {
+    if (!Array.isArray(plugin) || !['expo-image-picker', 'expo-speech-recognition'].includes(plugin[0])) continue
+    for (const d of Object.values(plugin[1])) assert.ok(/[\u4e00-\u9fff]/.test(d), `插件会覆盖为非中文权限说明:${d}`)
+  }
+})
+
+test('所有 iOS 提交 profile 只能指向大陆 App', () => {
+  const eas = JSON.parse(readFileSync(join(root, 'eas.json'), 'utf8'))
+  const app = JSON.parse(readFileSync(join(root, 'app.json'), 'utf8'))
+  assert.equal(app.expo.ios.bundleIdentifier, 'cn.lanwealth.baize')
+  assert.equal(app.expo.extra.eas.projectId, 'a7d79a89-404c-4795-a6f6-76428b4b638b')
+  for (const profile of Object.values(eas.submit)) {
+    if (profile.ios) assert.equal(profile.ios.ascAppId, '6818379158')
+  }
 })
