@@ -48,14 +48,15 @@
 - 提交详情：<https://appstoreconnect.apple.com/apps/6818379158/distribution/reviewsubmissions/details/30237e84-feb7-409f-9050-094154c71b16>。
 - 本机提交凭证：`/Users/jianxiongcai/.codex/tmp/bayze-cn-ios-0.2.13-39-20261017/asc-waiting-review-20261018.jpg`。
 
-## 安卓下载核验
+## 安卓下载初次核验（升级前）
 
 - 官网下载地址：`https://app.lanwealth.cn/download`。
-- 当前链接：`https://lanwealth-cn-site.oss-cn-shanghai.aliyuncs.com/mobile/baize-android-v0.2.9.zip`。
+- 当时链接：`https://lanwealth-cn-site.oss-cn-shanghai.aliyuncs.com/mobile/baize-android-v0.2.9.zip`。
 - HTTP 200；对象最后修改时间：2026-10-03 05:30:38 UTC。
 - ZIP 内 APK 实际 AndroidManifest：package `cn.lanwealth.baize`，versionName `0.2.9`，versionCode `16`。
 - EAS 最新已成功 Android 构建也是 0.2.9 / 16，链接与已发布制品一致；但未包含当前 0.2.13 的代码更新。
-- 未把旧 APK 改名为新版本，未将下载链接指向不存在的制品。安卓升级需重新构建、签名、验收并上传 OSS 后再更新下载页；本机尚无完整 Android SDK，EAS 云构建额度受限，未购买付费计划。
+- 初次核验时未把旧 APK 改名为新版本，未将下载链接指向不存在的制品。当时本机尚无完整 Android SDK，EAS 云构建额度受限，未购买付费计划。
+- 2026-10-18 后续已完成 Android 0.2.13（21）本机构建、原签名验证、旧版覆盖升级及官网下载发布；详见 [Android 发布记录](Android-0.2.13-大陆版发布记录-2026-10-18.md)。官网下载入口仍为 <https://app.lanwealth.cn/download>。
 
 ## 上传过程与后续事项
 
@@ -63,4 +64,4 @@
 2. 已提醒用户关闭临时开启的扩展“允许访问文件网址”权限；关闭状态尚未核实，未声称工具已代为关闭。
 3. 等待苹果审核结果；尚未审核通过或正式上线，本次未创建自动监控任务。
 4. 如苹果要求完整在线测试权限，再提供隔离的专用审核方案，不能把本机示例描述为真实在线模型结果。
-5. 安卓下载链接有效，但当前制品仍为 0.2.9（16）；升级到当前代码需要另行构建、签名、验收及更新下载制品。
+5. 安卓同步更新已于 2026-10-18 完成，官网下载为 0.2.13（21）；真实账号与厂商真机复测边界见 Android 发布记录。本项完成不代表 iOS 已审核通过。
