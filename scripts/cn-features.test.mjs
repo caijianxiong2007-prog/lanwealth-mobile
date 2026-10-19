@@ -48,6 +48,12 @@ test('令牌仅存 SecureStore(原生端不走 AsyncStorage 明文)', () => {
   assert.match(native, /if \(Platform\.OS !== 'web'\) return SecureStore\.setItemAsync\(key, value\)/)
 })
 
+test('语音权限中文预告+一键去设置恢复路径(P2-03)', () => {
+  assert.match(chat, /getPermissionsAsync/, '授权前先查状态')
+  assert.match(chat, /仅在你按住语音按钮说话时采集/, '中文用途预告(何时采集说清楚)')
+  assert.match(chat, /Linking\.openSettings\(\)/, '拒绝后提供一键去设置')
+})
+
 test('对话接口走 /api(cn-chat)而业务数据走 /crm-api(cn-api)', () => {
   assert.match(api, /await post\('\/api', \{ action: 'otp_send'/)
   assert.match(api, /await post\('\/crm-api', \{ action: 'account_delete_request'/)

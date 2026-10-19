@@ -6,7 +6,7 @@
 //   · 附件:选文档 → 服务端提取文本(PDF/DOCX/TXT,直传不入库)→ 作为本轮上下文注入
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Keyboard, Image, Pressable,
+  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Keyboard, Image, Pressable, Linking,
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import Svg, { Path } from 'react-native-svg'
@@ -115,11 +115,26 @@ export default function ChatScreen() {
     }
   })
   useSpeechRecognitionEvent('end', () => setListening(false))
+  // 语音输入(P2-03):授权前中文预告(为什么用/仅此时用);拒绝后给一键去设置的恢复路径
   async function toggleVoice() {
     if (listening) { ExpoSpeechRecognitionModule.stop(); return }
     try {
+      const status = await ExpoSpeechRecognitionModule.getPermissionsAsync().catch(() => null)
+      if (status && !status.granted && (status.status === 'undetermined' || status.canAskAgain === true)) {
+        // 系统弹窗前先讲清楚用途(首次授权转化的关键一步;系统弹窗文案随手机语言,中文机即中文)
+        const go = await new Promise<boolean>(resolve =>
+          Alert.alert('启用语音输入', '白泽需要「麦克风」与「语音识别」权限,仅在你按住语音按钮说话时采集,不用时不会录音。\n同意后将弹出系统授权。',
+            [{ text: '暂不', style: 'cancel', onPress: () => resolve(false) }, { text: '同意授权', onPress: () => resolve(true) }]))
+        if (!go) return
+      }
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync()
-      if (!perm.granted) { Alert.alert('需要麦克风权限', '请在系统设置中允许白泽使用麦克风与语音识别。'); return }
+      if (!perm.granted) {
+        Alert.alert('需要麦克风权限', '语音输入需要麦克风与语音识别权限。', [
+          { text: '取消', style: 'cancel' },
+          { text: '去设置', onPress: () => Linking.openSettings() },
+        ])
+        return
+      }
       voiceBase.current = input ? input.replace(/\s+$/, '') + ' ' : ''
       setListening(true)
       ExpoSpeechRecognitionModule.start({

@@ -1,0 +1,24 @@
+name: ci
+on:
+  push:
+    branches: [cn]
+  pull_request:
+    branches: [cn]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 安装依赖(跳过本机脚本——patch-xcode 只服务 macOS 本地出包)
+        run: npm ci --ignore-scripts
+      - name: 类型检查
+        run: npx tsc --noEmit
+      - name: 大陆版测试集(含构建卫生/域名扫描/版本一致性)
+        run: npm test
+      - name: 依赖审计门(critical=0;high 豁免见 docs/依赖治理台账.md)
+        run: npm audit --audit-level=critical
