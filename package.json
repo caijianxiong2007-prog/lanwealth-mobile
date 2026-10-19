@@ -32,18 +32,25 @@
     "expo-splash-screen": "~0.30.10",
     "expo-status-bar": "~2.2.0",
     "expo-updates": "~0.28.18",
+    "query-string": "^9.5.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.6",
-    "react-native-markdown-display": "^7.0.2",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
     "react-native-svg": "15.11.2",
     "react-native-web": "^0.20.0"
   },
+  "overrides": {
+    "@jest/environment": "30.5.2",
+    "@jest/fake-timers": "30.5.2",
+    "jest-haste-map": "30.5.1",
+    "micromatch": "4.0.8"
+  },
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@types/react": "~19.0.0",
+    "metro-transform-worker": "0.82.5",
     "typescript": "~5.8.3"
   }
 }
