@@ -399,9 +399,82 @@ export function cnRagContext(hits: CnRagHit[]): string | null {
   const mem = hits.filter(h => h.src === 'mem')
   if (!kb.length && !mem.length) return null
   const parts: string[] = []
-  if (kb.length) parts.push('以下是用户知识库中与本次提问语义相关的参考内容(若与提问无关请忽略,回答时不要提及"知识库"):\n\n' +
+  if (kb.length) parts.push('以下是用户知识库中与提问语义相关的参考内容(若与提问无关请忽略,回答时不要提及"知识库"):\n\n' +
     kb.map(h => '【' + h.title + '】\n' + h.content.slice(0, 400)).join('\n\n'))
-  if (mem.length) parts.push('以下是用户客户记忆中与本次提问语义相关的客户资料(若与提问无关请忽略,回答时不要提及"客户记忆"):\n\n' +
+  if (mem.length) parts.push('以下是用户客户记忆中与提问语义相关的客户资料(若与提问无关请忽略,回答时不要提及"客户记忆"):\n\n' +
     mem.map(h => '【客户:' + h.company + (h.contact ? ' · ' + h.contact : '') + '】\n' + h.facts.slice(0, 500)).join('\n\n'))
   return parts.join('\n\n')
+}
+
+// ═══ 工作台(P2-01 一期,2026-10-19):复用网页版既有动作,移动端轻封装 ═══
+// 上下文:finCtx 缺省取账号 active_tenant,无需显式传企业 ID;
+// 权限由服务端 hasPerm/scmGuard 逐动作校验,无权返回 403 由调用方呈现。
+
+export type CnWorkSetup = { tenant_id: number; perms: string[] }
+export type CnTodo = { id: number; title: string; source_type: string; source_id: number; detail?: { amount?: string } }
+export type CnExpense = { id: number; doc_no: string; category: string; amount: string; vendor?: string; description?: string; status: string }
+export type CnOrder = { id: number; po_no?: string; so_no?: string; supplier?: string; customer?: string; commodity?: string; amount?: string; status: string; created_at?: string }
+
+async function workPost(body: Record<string, unknown>) {
+  const session = await getCnSession()
+  if (!session) throw Object.assign(new Error('未登录'), { status: 401 })
+  return post('/crm-api', { session_token: session.token, ...body })
+}
+
+export async function cnWorkSetup(): Promise<CnWorkSetup> {
+  const j = await workPost({ action: 'fin_setup_get' })
+  if (!j.ok) throw new Error(j.error || '未开通企业')
+  return { tenant_id: j.tenant_id, perms: j.perms || [] }
+}
+export async function cnTodoList(): Promise<CnTodo[]> {
+  const j = await workPost({ action: 'biz_todo_list' })
+  return (j.items || []) as CnTodo[]
+}
+export async function cnTodoDone(id: number): Promise<void> { await workPost({ action: 'biz_todo_done', id }) }
+export async function cnExpenseDecide(id: number, decision: 'approved' | 'rejected'): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const j = await workPost({ action: 'fin_expense_decide', id, decision, extra: {} })
+    return { ok: !!j.ok, error: j.error }
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : '失败' } }
+}
+export async function cnExpenseCreate(category: string, amount: string, vendor: string, description: string): Promise<{ ok: boolean; doc_no?: string; error?: string }> {
+  try {
+    const j = await workPost({ action: 'fin_expense_create', category, amount, vendor, description })
+    if (!j.ok) return { ok: false, error: j.error }
+    if (j.id) {
+      const s = await workPost({ action: 'fin_expense_submit', id: j.id })
+      if (!s.ok) return { ok: true, doc_no: j.doc_no, error: '已保存为草稿(提交审批失败:' + (s.error || '') + ')' }
+    }
+    return { ok: true, doc_no: j.doc_no }
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : '失败' } }
+}
+export async function cnExpenseMine(): Promise<CnExpense[]> {
+  const j = await workPost({ action: 'fin_expense_list', mine: true })
+  return (j.items || []) as CnExpense[]
+}
+export async function cnOrders(kind: 'po' | 'so'): Promise<CnOrder[]> {
+  const j = await workPost({ action: kind === 'po' ? 'scm_po_list' : 'scm_so_list' })
+  return (j.items || []) as CnOrder[]
+}
+export async function cnKbSearch(q: string, tenantId?: number): Promise<{ title: string; snippet: string }[]> {
+  const j = await workPost({ action: 'knowledge_search', q, ...(tenantId ? { scope: 'tenant', tenant_id: tenantId } : {}) })
+  return (j.items || []).slice(0, 8).map((it: { title?: string; content?: string }) => ({ title: it.title || '(无标题)', snippet: (it.content || '').slice(0, 120) }))
+}
+
+// ── 套餐四态(P2-02):区分 加载中/正常/未开通/加载失败,替代"吞错当体验版" ──
+export type CnPlanState =
+  | { state: 'loading' }
+  | { state: 'ok'; data: CnPlan }
+  | { state: 'none' }        // 服务端确认无套餐(个人体验版口径)
+  | { state: 'error'; error: string }
+export async function cnPlanInfoEx(): Promise<CnPlanState> {
+  const session = await getCnSession()
+  if (!session) return { state: 'none' }
+  try {
+    const j = await post('/crm-api', { action: 'plan_info', session_token: session.token })
+    if (!j.ok) return { state: 'none' }
+    return { state: 'ok', data: { plan: j.plan, label: j.label, limit: j.limit, scope: j.scope, used: j.used, remaining: j.remaining, expires: j.expires ?? null } }
+  } catch (e) {
+    return { state: 'error', error: e instanceof Error ? e.message : '网络异常' }
+  }
 }

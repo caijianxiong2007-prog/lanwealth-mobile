@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { getCnSession, cnLogout, cnUsage, cnPlanInfo, cnAccountDelete, CN_BASE, type CnUsage, type CnPlan } from '../../lib/cnApi'
+import { getCnSession, cnLogout, cnUsage, cnPlanInfoEx, cnAccountDelete, CN_BASE, type CnUsage, type CnPlan } from '../../lib/cnApi'
 import { wipeConversations } from '../../lib/cnConversations'
 
 const C = {
@@ -29,20 +29,27 @@ export default function SettingsScreen() {
   const [phone, setPhone]         = useState('')
   const [usage, setUsage]         = useState<CnUsage | null>(null)
   const [plan, setPlan]           = useState<CnPlan | null>(null)
+  const [planErr, setPlanErr]     = useState<string | null>(null)   // P2-02:加载失败≠未开通,分开呈现
+  const [usageErr, setUsageErr]   = useState(false)
   const [loading, setLoading]     = useState(true)
   const [delBusy, setDelBusy]     = useState(false)
+  const [reloadN, setReloadN]     = useState(0)
 
   useEffect(() => {
     let alive = true
     ;(async () => {
+      setLoading(true); setPlanErr(null); setUsageErr(false)
       const s = await getCnSession()
       if (alive) setPhone(s?.phone || '')
-      try { const u = await cnUsage(); if (alive) setUsage(u) } catch {}
-      try { const p = await cnPlanInfo(); if (alive) setPlan(p) } catch {}
+      try { const u = await cnUsage(); if (alive) setUsage(u) } catch { if (alive) setUsageErr(true) }
+      const ps = await cnPlanInfoEx()
+      if (!alive) return
+      if (ps.state === 'ok') setPlan(ps.data)
+      else { setPlan(null); if (ps.state === 'error') setPlanErr(ps.error) }
       if (alive) setLoading(false)
     })()
     return () => { alive = false }
-  }, [])
+  }, [reloadN])
 
   // 近 7 天:调用次数与 tokens 汇总
   const week = (usage || []).filter((r) => r.day >= new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))
@@ -99,7 +106,15 @@ export default function SettingsScreen() {
       {/* 套餐与额度卡片 */}
       <View style={s.card}>
         <View style={s.planHead}>
-          <Text style={s.planLabel}>{loading ? '加载中…' : (plan?.label || '体验版')}</Text>
+          <Text style={[s.planLabel, planErr && { color: C.amber }]}>
+            {loading ? '加载中…' : planErr ? '套餐信息加载失败' : (plan?.label || '体验版(未订阅)')}
+          </Text>
+          {planErr ? <Text style={{ color: C.amber, fontSize: 11.5, marginBottom: 6 }}>{planErr} · 下方点「重试」;网络恢复前额度与到期信息可能不准</Text> : null}
+          {(planErr || usageErr) && !loading ? (
+            <TouchableOpacity style={s.renewBtn} onPress={() => setReloadN(n => n + 1)} activeOpacity={0.8}>
+              <Text style={s.renewTx}>↻ 重试加载</Text>
+            </TouchableOpacity>
+          ) : null}
           {plan?.expires ? (
             <Text style={[s.planExp, expiring && { color: C.amber }]}>
               {daysLeft! <= 0 ? '已到期' : `${daysLeft} 天后到期`}

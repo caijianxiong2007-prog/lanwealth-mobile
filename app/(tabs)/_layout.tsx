@@ -12,14 +12,15 @@ export default function TabLayout() {
       tabBarInactiveTintColor: C.muted,
       tabBarLabelStyle: { fontSize: 11 },
     }}>
-      <Tabs.Screen name="index"    options={{ title: '对话',  tabBarIcon: ({ color }) => <TabIcon name="chat" color={color} /> }} />
-      <Tabs.Screen name="settings" options={{ title: '我的', tabBarIcon: ({ color }) => <TabIcon name="settings" color={color} /> }} />
+      <Tabs.Screen name="index"      options={{ title: '对话',    tabBarIcon: ({ color }) => <TabIcon name="chat" color={color} /> }} />
+      <Tabs.Screen name="workbench" options={{ title: '工作台',  tabBarIcon: ({ color }) => <TabIcon name="work" color={color} /> }} />
+      <Tabs.Screen name="settings"   options={{ title: '我的',   tabBarIcon: ({ color }) => <TabIcon name="settings" color={color} /> }} />
     </Tabs>
   )
 }
 
 function TabIcon({ name, color }: { name: string; color: string }) {
   const { Text } = require('react-native')
-  const icons: Record<string, string> = { chat: '💬', settings: '👤' }
+  const icons: Record<string, string> = { chat: '💬', work: '🗂️', settings: '👤' }
   return <Text style={{ fontSize: 20 }}>{icons[name] ?? '·'}</Text>
 }
