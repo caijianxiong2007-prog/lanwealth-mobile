@@ -2,7 +2,7 @@
   "expo": {
     "name": "白泽Bayze",
     "slug": "lanwealth-cn-mobile",
-    "version": "0.2.13",
+    "version": "0.2.14",
     "orientation": "portrait",
     "runtimeVersion": {
       "policy": "fingerprint"
@@ -21,7 +21,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "cn.lanwealth.baize",
-      "buildNumber": "39",
+      "buildNumber": "40",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSSpeechRecognitionUsageDescription": "用于语音输入:将你说的话识别为文字后发送,不用于其他用途。",
