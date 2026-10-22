@@ -8,6 +8,7 @@ import {
   cnWorkSetup, cnTodoList, cnTodoDone, cnExpenseDecide, cnExpenseCreate, cnExpenseMine,
   cnOrders, cnKbSearch, type CnTodo, type CnExpense, type CnOrder,
 } from '../../lib/cnApi'
+import { WorkThreadsCard } from '../../components/WorkThreadsCard'
 
 const C = { bg: '#0a0f0d', card: '#101815', border: '#22302a', text: '#e6efe9', muted: '#8fa89b', teal: '#1aeba8', red: '#e05656' }
 
@@ -200,6 +201,11 @@ export default function WorkbenchScreen() {
               <Text style={s.mutedSm} numberOfLines={2}>{h.snippet}…</Text>
             </View>
           ))}
+        </Card>
+
+        {/* 工作记录(CN10:新版 work 协议;个人空间,消息级历史+离线队列) */}
+        <Card title="💬 工作记录(新版)">
+          <WorkThreadsCard />
         </Card>
       </>)}
     </ScrollView>

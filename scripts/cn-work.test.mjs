@@ -81,3 +81,28 @@ test('三模块零新原生依赖(仅 AsyncStorage,与仓内既有栈一致)', (
     assert.doesNotMatch(src, /from ['"]expo-file-system/)
   }
 })
+
+// ── UI 接入(CN10 UI,2026-10-22)──
+const card = read('components/WorkThreadsCard.tsx')
+const wb = read('app/(tabs)/workbench.tsx')
+
+test('WorkThreadsCard 接入三模块(workApi/workStore/syncQueue)', () => {
+  assert.match(card, /from '\.\.\/lib\/workApi'/)
+  assert.match(card, /from '\.\.\/lib\/workStore'/)
+  assert.match(card, /from '\.\.\/lib\/syncQueue'/)
+})
+
+test('工作台页挂载工作记录卡', () => {
+  assert.match(wb, /WorkThreadsCard/)
+  assert.match(wb, /工作记录/)
+})
+
+test('发送走同步引擎(离线入队语义继承),冲突重读不盲目重试', () => {
+  assert.match(card, /ctx\.sync\.send\(/)
+  assert.match(card, /r\.conflict\)/)
+  assert.match(card, /r\.queued\)/)
+})
+
+test('会话上下文取 getCnSession(令牌不落组件状态)', () => {
+  assert.match(card, /getCnSession/)
+})
