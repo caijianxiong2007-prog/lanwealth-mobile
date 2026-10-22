@@ -15,24 +15,11 @@ const PATCH = `
 `
 
 function injectFmtPatch(contents) {
-  if (contents.includes("target.name == 'fmt'")) return contents
-
-  const reactNativePostInstall = /(\s+react_native_post_install\([^\n]+\)\n)/
-  if (reactNativePostInstall.test(contents)) {
-    return contents.replace(reactNativePostInstall, `$1${PATCH}`)
-  }
-
-  const postInstall = /(post_install do \|installer\|\n)/
-  if (postInstall.test(contents)) {
-    return contents.replace(postInstall, `$1${PATCH}`)
-  }
-
-  return `${contents}
-
-post_install do |installer|
-${PATCH}
-end
-`
+  const clean = contents.replace(PATCH, '')
+  if (clean.includes("target.name == 'fmt'")) throw new Error('Unrecognized fmt patch; inspect the Podfile before changing it')
+  const reactNativePostInstall = /(^[ \t]*react_native_post_install\([^\n]*\)\n|^[ \t]*react_native_post_install\([\s\S]*?^[ \t]*\)[ \t]*\n)/m
+  if (!reactNativePostInstall.test(clean)) throw new Error('Missing React Native post-install hook')
+  return clean.replace(reactNativePostInstall, `$1${PATCH}`)
 }
 
 module.exports = function withFmtCxx17(config) {
@@ -48,3 +35,5 @@ module.exports = function withFmtCxx17(config) {
     },
   ])
 }
+
+module.exports.injectFmtPatch = injectFmtPatch

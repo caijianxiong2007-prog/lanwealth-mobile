@@ -1,7 +1,17 @@
 // 大陆版 Tab 布局(cn 分支):对话 + 我的(v1 去掉 Tools 导流页,网页版入口在设置页)
-import { Tabs } from 'expo-router'
+import { Tabs, type ErrorBoundaryProps } from 'expo-router'
+import { Text, TouchableOpacity, View } from 'react-native'
 
 const C = { bg2: '#101815', border: '#22302a', teal: '#1aeba8', muted: '#8fa89b' }
+
+export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
+  return <View style={{ flex: 1, backgroundColor: C.bg2, justifyContent: 'center', padding: 24 }}>
+    <Text style={{ color: '#e6efe9', fontSize: 18, marginBottom: 16 }}>工作区加载失败</Text>
+    <TouchableOpacity accessibilityRole="button" onPress={retry} style={{ minHeight: 44, justifyContent: 'center' }}>
+      <Text style={{ color: C.teal, fontSize: 16 }}>重新加载</Text>
+    </TouchableOpacity>
+  </View>
+}
 
 export default function TabLayout() {
   return (

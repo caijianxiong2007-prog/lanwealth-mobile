@@ -14,8 +14,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: 安装依赖(跳过本机脚本——patch-xcode 只服务 macOS 本地出包)
+      - name: 安装依赖(跳过本机 Xcode 脚本)
         run: npm ci --ignore-scripts
+      - name: 应用跨平台路由模块兼容补丁
+        run: node scripts/patch-router-query-string.cjs
       - name: 类型检查
         run: npx tsc --noEmit
       - name: 大陆版测试集(含构建卫生/域名扫描/版本一致性)

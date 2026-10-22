@@ -13,60 +13,119 @@ export const CN_BASE = 'https://app.lanwealth.cn'   // /api(cn-chat)与 /crm-api
 // ── 会话令牌(HMAC session_token,与网页端同一张令牌;30 天记住登录由 remember 控制)──
 const TOKEN_KEY = 'cn_session_token'
 const PHONE_KEY = 'cn_session_phone'
+const SESSION_KEY = 'cn_session_v2'
+const SESSION_TOMBSTONE = JSON.stringify({ version: 2, loggedOut: true })
 
 async function kvGet(key: string): Promise<string | null> {
   if (Platform.OS !== 'web') return SecureStore.getItemAsync(key)
-  try { return await AsyncStorage.getItem(key) } catch { return null }
+  return AsyncStorage.getItem(key)
 }
 async function kvSet(key: string, value: string): Promise<void> {
   if (Platform.OS !== 'web') return SecureStore.setItemAsync(key, value)
-  try { await AsyncStorage.setItem(key, value) } catch {}
+  await AsyncStorage.setItem(key, value)
 }
 async function kvDel(key: string): Promise<void> {
   if (Platform.OS !== 'web') return SecureStore.deleteItemAsync(key)
-  try { await AsyncStorage.removeItem(key) } catch {}
+  await AsyncStorage.removeItem(key)
 }
 
 export type CnSession = { token: string; phone: string }
 
-export async function getCnSession(): Promise<CnSession | null> {
+let sessionQueue: Promise<void> = Promise.resolve()
+let sessionSuppressed = false
+function withSessionLock<T>(operation: () => Promise<T>): Promise<T> {
+  const result = sessionQueue.then(operation)
+  sessionQueue = result.then(() => {}, () => {})
+  return result
+}
+
+function validSession(token: unknown, phone: unknown): token is string {
+  // Check identity/shape only. HMAC authentication remains exclusively on the server.
+  return typeof phone === 'string' && /^1[3-9]\d{9}$/.test(phone)
+    && typeof token === 'string' && token.split('.')[0] === phone
+    && /^1[3-9]\d{9}\.\d+\.(?:(?:1|30)\.)?[a-f0-9]{32}$/.test(token)
+}
+
+async function readSessionUnlocked(): Promise<CnSession | null> {
+  if (sessionSuppressed) return null
+  const raw = await kvGet(SESSION_KEY)
+  if (raw !== null) {
+    try {
+      const value = JSON.parse(raw)
+      if (value?.version === 2 && value.loggedOut !== true && validSession(value.token, value.phone)) {
+        return { token: value.token, phone: value.phone }
+      }
+    } catch {}
+    // A tombstone or invalid new record must never fall back to legacy credentials.
+    return null
+  }
   const token = await kvGet(TOKEN_KEY)
   const phone = await kvGet(PHONE_KEY)
-  return token && phone ? { token, phone } : null
+  return validSession(token, phone) ? { token, phone: phone! } : null
+}
+
+async function deleteLegacySession(): Promise<boolean> {
+  let deleted = true
+  for (const key of [TOKEN_KEY, PHONE_KEY]) {
+    try { await kvDel(key) } catch { deleted = false }
+  }
+  return deleted
+}
+
+async function clearSessionUnlocked(): Promise<void> {
+  sessionSuppressed = true
+  try {
+    await kvSet(SESSION_KEY, SESSION_TOMBSTONE)
+  } catch (error) {
+    // If the tombstone cannot be persisted, remove every possible source instead.
+    // Total storage failure still rejects logout; reads stay blocked in this process.
+    const legacyDeleted = await deleteLegacySession()
+    let currentDeleted = false
+    try { await kvDel(SESSION_KEY); currentDeleted = true } catch {}
+    if (!legacyDeleted || !currentDeleted) throw error
+    return
+  }
+  await deleteLegacySession()
+}
+
+export async function getCnSession(): Promise<CnSession | null> {
+  return withSessionLock(readSessionUnlocked)
 }
 export async function saveCnSession(token: string, phone: string): Promise<void> {
-  await kvSet(TOKEN_KEY, token)
-  await kvSet(PHONE_KEY, phone)
+  return withSessionLock(async () => {
+    if (!validSession(token, phone)) throw new Error('登录会话无效，请重新登录')
+    await kvSet(SESSION_KEY, JSON.stringify({ version: 2, token, phone }))
+    sessionSuppressed = false
+    await deleteLegacySession()
+  })
 }
 export async function clearCnSession(): Promise<void> {
-  await kvDel(TOKEN_KEY)
-  await kvDel(PHONE_KEY)
+  return withSessionLock(clearSessionUnlocked)
 }
 
 // ── 401 统一登出(P1-08,2026-10-15):令牌过期/撤销 → 原子清会话 + 单次跳登录 ──
-// 多个在途请求同时 401 时只清理+跳转一次(handling401 单飞);1.5s 后复位,
-// 允许下一次会话过期再次触发。handler 由根布局注册(router.replace),lib 层不引导航。
+// Compare and clear under the same lock as login writes; stale requests cannot clear a new login.
+// handler 由根布局注册(router.replace),lib 层不引导航。
 let unauthorizedHandler: (() => void) | null = null
-let handling401 = false
 export function setCnUnauthorizedHandler(fn: (() => void) | null): void {
   unauthorizedHandler = fn
 }
 export function unauthorizedMessage(): string {
   return '登录已过期,请重新登录'
 }
-async function on401(): Promise<void> {
-  if (handling401) return
-  handling401 = true
-  try {
-    await clearCnSession()
+async function on401(requestToken: string | undefined): Promise<void> {
+  if (!requestToken) return
+  return withSessionLock(async () => {
+    const session = await readSessionUnlocked()
+    if (!session || session.token !== requestToken) return
+    await clearSessionUnlocked()
     if (unauthorizedHandler) { try { unauthorizedHandler() } catch {} }
-  } finally {
-    setTimeout(() => { handling401 = false }, 1500)
-  }
+  })
 }
 
 // ── 统一请求(JSON POST;20s 超时)──
-async function post(path: string, body: Record<string, unknown>, timeoutMs = 20000): Promise<Record<string, any>> {
+async function post(path: string, body: Record<string, unknown>, timeoutMs = 20000, authenticating = false): Promise<Record<string, any>> {
+  const requestToken = typeof body.session_token === 'string' ? body.session_token : undefined
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
@@ -77,9 +136,9 @@ async function post(path: string, body: Record<string, unknown>, timeoutMs = 200
       signal: ctrl.signal,
     })
     const j = await res.json().catch(() => ({}))
-    if (res.status === 401) {
+    if (res.status === 401 && !authenticating) {
       // P1-08:统一 401——清会话+跳登录后再抛,调用方按普通错误提示即可
-      await on401()
+      await on401(requestToken)
       const err = new Error(unauthorizedMessage()) as Error & { status?: number; unauthorized?: boolean }
       err.status = 401
       err.unauthorized = true
@@ -107,7 +166,7 @@ export async function cnOcr(image: string): Promise<{ ok: boolean; text?: string
       body: JSON.stringify({ action: 'ocr', session_token: session.token, image }),
     })
     const j = await res.json().catch(() => ({}))
-    if (res.status === 401) { await on401(); return { ok: false, error: unauthorizedMessage() } }
+    if (res.status === 401) { await on401(session.token); return { ok: false, error: unauthorizedMessage() } }
     if (!res.ok || j.error) return { ok: false, error: j.error || '识别失败' }
     return { ok: true, text: j.text || '' }
   } catch (e) {
@@ -148,6 +207,20 @@ export async function cnOtpVerify(phone: string, code: string, remember: boolean
     return { ok: true }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '验证失败' }
+  }
+}
+
+export async function cnPasswordLogin(phone: string, password: string): Promise<CnResult> {
+  try {
+    // A rejected credential is not an expired session; preserve the server's login error.
+    const j = await post('/api', { action: 'login_password', phone, password, remember: true, source: 'app' }, 20000, true)
+    if (j.ok !== true || typeof j.session_token !== 'string' || !j.session_token.trim()) {
+      return { ok: false, error: '登录失败，请重试' }
+    }
+    await saveCnSession(j.session_token, phone)
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '登录失败' }
   }
 }
 
@@ -453,7 +526,8 @@ export async function cnExpenseMine(): Promise<CnExpense[]> {
   return (j.items || []) as CnExpense[]
 }
 export async function cnOrders(kind: 'po' | 'so'): Promise<CnOrder[]> {
-  const j = await workPost({ action: kind === 'po' ? 'scm_po_list' : 'scm_so_list' })
+  const setup = await cnWorkSetup()
+  const j = await workPost({ action: kind === 'po' ? 'scm_po_list' : 'scm_so_list', tenant_id: setup.tenant_id })
   return (j.items || []) as CnOrder[]
 }
 export async function cnKbSearch(q: string, tenantId?: number): Promise<{ title: string; snippet: string }[]> {

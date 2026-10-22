@@ -20,6 +20,10 @@ const ORD_ST: Record<string, string> = { draft: '草稿', submitted: '待批', a
 
 type SetupState = { state: 'loading' } | { state: 'ok'; tenant_id: number } | { state: 'none' } | { state: 'error'; error: string }
 
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return <View style={s.card}><Text style={s.cardTitle}>{title}</Text>{children}</View>
+}
+
 export default function WorkbenchScreen() {
   const insets = useSafeAreaInsets()
   const [setup, setSetup] = useState<SetupState>({ state: 'loading' })
@@ -102,13 +106,6 @@ export default function WorkbenchScreen() {
     setKbHits(await cnKbSearch(q, tid).catch(() => []))
     setKbBusy(false)
   }
-
-  const Card = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <View style={s.card}>
-      <Text style={s.cardTitle}>{title}</Text>
-      {children}
-    </View>
-  )
 
   return (
     <ScrollView style={[s.wrap, { paddingTop: insets.top }]} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}

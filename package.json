@@ -3,7 +3,7 @@
   "version": "0.2.14",
   "main": "expo-router/entry",
   "scripts": {
-    "postinstall": "node scripts/patch-xcode.js",
+    "postinstall": "node scripts/patch-xcode.js && node scripts/patch-router-query-string.cjs",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
