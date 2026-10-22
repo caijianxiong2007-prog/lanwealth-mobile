@@ -6,7 +6,7 @@
 //   · 附件:选文档 → 服务端提取文本(PDF/DOCX/TXT,直传不入库)→ 作为本轮上下文注入
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Keyboard, Image, Pressable, Linking,
+  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Keyboard, Image, Pressable, Linking, ScrollView,
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import Svg, { Path } from 'react-native-svg'
@@ -30,8 +30,81 @@ const C = {
 
 type Bubble = { role: 'user' | 'assistant'; content: string; ts: number; model?: string }
 
+// ── 助手内容轻量渲染(2026-10-22):markdown 表格 → 原生表格卡片 ──
+// 此前助手消息纯 Text 直出,表格显示为竖线原文。现解析连续 | 行为表格块:
+// 表头高亮/隔行着色/横向滚动/长按复制 TSV(可直贴 Excel/WPS);非表格文本维持原样。
+type ContentBlock = { type: 'text'; text: string } | { type: 'table'; header: string[] | null; rows: string[][] }
+function parseContentBlocks(content: string): ContentBlock[] {
+  const blocks: ContentBlock[] = []
+  const lines = (content || '').split('\n')
+  let text: string[] = []
+  let tblLines: string[] = []
+  const splitRow = (l: string) => {
+    let t = l.trim()
+    if (t.startsWith('|')) t = t.slice(1)
+    if (t.endsWith('|')) t = t.slice(0, -1)
+    return t.split('|').map(c => c.trim())
+  }
+  const isSep = (r: string[]) => r.some(c => /^:?-{3,}:?$/.test(c)) && r.every(c => c === '' || /^:?-{3,}:?$/.test(c))
+  const flushText = () => { if (text.length) { blocks.push({ type: 'text', text: text.join('\n') }); text = [] } }
+  const flushTable = () => {
+    if (!tblLines.length) return
+    if ((tblLines[0].match(/\|/g) || []).length < 2) { text.push(...tblLines); tblLines = []; return }
+    const rows = tblLines.map(splitRow)
+    const hasHead = rows.length > 1 && isSep(rows[1])
+    blocks.push({ type: 'table', header: hasHead ? rows[0] : null, rows: hasHead ? rows.slice(2) : rows })
+    tblLines = []
+  }
+  for (const l of lines) {
+    if (/^\s*\|/.test(l)) { flushText(); tblLines.push(l) }
+    else { flushTable(); text.push(l) }
+  }
+  flushTable(); flushText()
+  return blocks
+}
+function stripMd(x: string) { return x.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1') }
+
+function AiContent({ content, onCopyTable }: { content: string; onCopyTable: (tsv: string) => void }) {
+  const blocks = parseContentBlocks(content)
+  // 列宽按该列最长内容估算 minWidth(限 14 字),保证各行列对齐;超长列横向滚动
+  const colWidths = (header: string[] | null, rows: string[][]) => {
+    const all = (header ? [header, ...rows] : rows)
+    const n = Math.max(1, ...all.map(r => r.length))
+    const w = new Array(n).fill(3)
+    for (const r of all) r.forEach((c, j) => { w[j] = Math.max(w[j], Math.min(c.length, 14)) })
+    return w.map(x => x * 13 + 10)
+  }
+  return (
+    <View>
+      {blocks.map((b, i) => b.type === 'text' ? (
+        <Text key={i} style={s.bubbleAiTx}>{stripMd(b.text)}</Text>
+      ) : (
+        <Pressable key={i} onLongPress={() => onCopyTable((b.header ? [b.header, ...b.rows] : b.rows).map(r => r.join('\t')).join('\n'))}
+          style={s.tblCard}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled>
+            <View>
+              {b.header ? (
+                <View style={s.tblRowHead}>
+                  {b.header.map((c, j) => <Text key={j} style={[s.tblHeadTx, { minWidth: colWidths(b.header, b.rows)[j] }]}>{stripMd(c)}</Text>)}
+                </View>
+              ) : null}
+              {b.rows.map((r, ri) => (
+                <View key={ri} style={[s.tblRow, ri % 2 === 1 && s.tblRowAlt]}>
+                  {r.map((c, j) => <Text key={j} style={[s.tblCellTx, { minWidth: colWidths(b.header, b.rows)[j] }]}>{stripMd(c)}</Text>)}
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+          <Text style={s.tblHint}>长按表格可复制(可直接粘贴到 Excel)</Text>
+        </Pressable>
+      ))}
+    </View>
+  )
+}
+
 // 分享转入支持的文档类型(与 📎 附件同一集合;图片分享暂不接,提示走截图后网页 OCR)
-const SHARE_DOC_EXTS = ['pdf', 'docx', 'doc', 'txt', 'md', 'csv']
+// 2026-10-22:xlsx/xls 放行——后端 file_extract 已支持(xlsx 库),此前白名单漏配导致无法导入
+const SHARE_DOC_EXTS = ['pdf', 'docx', 'doc', 'txt', 'md', 'csv', 'xlsx', 'xls']
 
 export default function ChatScreen() {
   const insets    = useSafeAreaInsets()
@@ -222,7 +295,10 @@ export default function ChatScreen() {
     const r = await DocumentPicker.getDocumentAsync({
       type: ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
              'application/msword',
-             'text/plain', 'text/markdown', 'text/csv', 'text/comma-separated-values'],
+             'text/plain', 'text/markdown', 'text/csv', 'text/comma-separated-values',
+             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',   // .xlsx
+             'application/vnd.ms-excel',                                            // .xls
+             'application/CDFV2-corrupt'],   // 部分安卓把 xls/xlsx 报成系统探测型
       copyToCacheDirectory: true,
     })
     if (r.canceled || !r.assets?.length) return
@@ -510,7 +586,13 @@ export default function ChatScreen() {
             style={item.role === 'user' ? s.bubbleUserWrap : s.bubbleAiWrap}
           >
             <View style={[s.bubble, item.role === 'user' ? s.bubbleUser : s.bubbleAi]}>
-              <Text style={item.role === 'user' ? s.bubbleUserTx : s.bubbleAiTx}>{item.content}</Text>
+              {item.role === 'user'
+                ? <Text style={s.bubbleUserTx}>{item.content}</Text>
+                : <AiContent content={item.content} onCopyTable={(tsv) => {
+                    Clipboard.setStringAsync(tsv)
+                      .then(() => { setTip('表格已复制'); setTimeout(() => setTip(null), 1200) })
+                      .catch(() => {})
+                  }} />}
               {item.role === 'assistant' && item.model ? (
                 <Text style={s.modelBadge}>✦ {item.model}</Text>
               ) : null}
@@ -649,6 +731,13 @@ const s = StyleSheet.create({
   emptyTx: { color: C.text, fontSize: 14, textAlign: 'center', marginTop: 14, lineHeight: 22 },
   emptySub: { color: C.muted, fontSize: 12, marginTop: 8 },
   modelBadge: { color: C.muted, fontSize: 11, marginTop: 8, alignSelf: 'flex-start' },
+  tblCard: { borderRadius: 10, borderWidth: 1, borderColor: C.border, marginVertical: 8, padding: 6, backgroundColor: 'rgba(0,0,0,.16)' },
+  tblRowHead: { flexDirection: 'row', backgroundColor: 'rgba(26,235,168,.08)', borderRadius: 6 },
+  tblHeadTx: { color: C.text, fontWeight: '700', fontSize: 12, paddingHorizontal: 6, paddingVertical: 7 },
+  tblRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(143,168,155,.18)' },
+  tblRowAlt: { backgroundColor: 'rgba(143,168,155,.05)' },
+  tblCellTx: { color: C.text, fontSize: 12, paddingHorizontal: 6, paddingVertical: 6, lineHeight: 17 },
+  tblHint: { color: C.muted, fontSize: 10, marginTop: 4 },
   bubble: { borderRadius: 12, padding: 12, marginBottom: 10 },
   bubbleUserWrap: { alignSelf: 'flex-end', maxWidth: '88%' },
   bubbleAiWrap: { alignSelf: 'stretch' },
