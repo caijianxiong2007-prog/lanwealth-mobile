@@ -21,7 +21,7 @@ const isIOS = Platform.OS === 'ios'
 // APP 备案号(2026-10-15 工信部已下发)
 const APP_ICP = '沪ICP备2026047002号-3A'
 // 版本单一真值(P1-09):取自 app.json(expoConfig),本地兜底与构建核对用
-const APP_VERSION = Constants.expoConfig?.version || '0.2.14'
+const APP_VERSION = Constants.expoConfig?.version || '0.3.0'
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets()
