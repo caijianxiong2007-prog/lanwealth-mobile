@@ -1,6 +1,6 @@
 {
   "name": "lanwealth-mobile",
-  "version": "0.2.14",
+  "version": "0.3.0",
   "main": "expo-router/entry",
   "scripts": {
     "postinstall": "node scripts/patch-xcode.js && node scripts/patch-router-query-string.cjs",
