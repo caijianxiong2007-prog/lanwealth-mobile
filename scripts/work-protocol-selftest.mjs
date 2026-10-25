@@ -20,6 +20,23 @@ for (const f of ['lib/workApi.ts', 'lib/workStore.ts', 'lib/syncQueue.ts']) {
 }
 const A = read('lib/workApi.ts'), S = read('lib/workStore.ts'), Q = read('lib/syncQueue.ts')
 
+// ═══ ⓪ UI 卡片与入口(INT10) ═══
+section('⓪ WorkThreadsCard + Work Tab')
+ok(existsSync(join(root, 'components/WorkThreadsCard.tsx')), '文件存在: components/WorkThreadsCard.tsx')
+const W = existsSync(join(root, 'components/WorkThreadsCard.tsx')) ? read('components/WorkThreadsCard.tsx') : ''
+ok(/getSession/.test(W) && /getToken: async \(\) => \(await getSession\(\)\)\?\.access_token/.test(W), '令牌每次现取(supabase 自动续期,1h 过期不卡死)')
+ok(/createWorkStore\(s\.user\.id, 'personal', null\)/.test(W), '缓存键=userId(D 串号守卫)')
+ok(/rememberSpace/.test(W), '登记空间索引(登出全清)')
+ok(/ctx\.sync\.send\(/.test(W), '发送走同步队列(离线入队语义)')
+ok(/r\.conflict/.test(W) && /open\(openThread\)/.test(W), '409 冲突→重读')
+ok(/typeof r\.revision === 'number'/.test(W), 'revision 以服务端真值推进(回复桥 +1 兼容)')
+ok(/sync\.loadMessages|ctx\.sync\.loadMessages/.test(W), '消息拉取走 loadMessages')
+ok(/未登录|Not signed in/.test(W), '未登录提示态(不崩)')
+ok(/sync\.rebuild\(\)/.test(W), '进入即快照重建(失败回落本地缓存)')
+const LAYOUT = read('app/(tabs)/_layout.tsx')
+ok(/name="work"/.test(LAYOUT), 'Tab 栏含 work 入口(与 Chat 并存灰度)')
+ok(existsSync(join(root, 'app/(tabs)/work.tsx')), '文件存在: app/(tabs)/work.tsx')
+
 // ═══ ① workApi:REST 分发与鉴权 ═══
 section('① workApi · REST 分发 / Bearer / 多域名')
 ok(/const ROUTES: Record<string, Route>/.test(A), 'ROUTES 路由表(REST 按 action 分发,非单入口)')
