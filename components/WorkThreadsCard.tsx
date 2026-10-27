@@ -88,7 +88,14 @@ export function WorkThreadsCard() {
     try {
       const r = await ctx.sync.send(openThread.threadId, [{ t: 'text', v: draft.trim() }], openThread.revision)
       setDraft('')
-      if (r.conflict) { setNotice('Version conflict, reloading…'); await open(openThread); return }
+      // S01:conflict 时回填消息文本——旧版清空草稿后直接丢弃,用户输入白打
+      if (r.conflict) {
+        const back = r.parts && r.parts[0] && r.parts[0].v
+        if (back) setDraft(String(back))
+        setNotice('Version conflict — reloaded, message restored, resend to retry')
+        await open(openThread)
+        return
+      }
       if (r.queued) { setNotice('Queued — will send when back online'); return }
       if (r.dropped) { setNotice('Send failed: ' + (r.error || '')); return }
       // 推进本地 revision(响应真值;回复桥可能已 +1)并拉新消息(含 AI 回复)
