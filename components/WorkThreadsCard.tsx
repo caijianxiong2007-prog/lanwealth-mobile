@@ -54,7 +54,7 @@ export function WorkThreadsCard() {
     setOpenThread(th)
     const cached = await ctx.store.getMessages(th.threadId)
     if (cached) setMessages(cached)
-    const r = await ctx.api.messageList({ threadId: th.threadId, afterSeq: 0, limit: 200 })
+    const r = await ctx.api.messageList({ threadId: th.threadId, beforeSeq: 9007199254740991, limit: 200  // S03:取最新尾页,旧版 afterSeq:0 只见最早 200 条 })
     if (!r.__notOk && Array.isArray(r.items)) {
       setMessages(r.items as WorkMessage[])
       await ctx.store.setMessages(th.threadId, r.items as WorkMessage[])
@@ -82,7 +82,14 @@ export function WorkThreadsCard() {
     try {
       const r = await ctx.sync.send(openThread.threadId, [{ t: 'text', v: draft.trim() }], openThread.revision)
       setDraft('')
-      if (r.conflict) { setNotice('版本冲突,重读中'); await open(openThread); return }
+      // S01:conflict 时回填消息文本——旧版清空草稿后直接丢弃,用户输入白打
+      if (r.conflict) {
+        const back = r.parts && r.parts[0] && r.parts[0].v
+        if (back) setDraft(String(back))
+        setNotice('版本冲突:已重读,消息已回填可重发')
+        await open(openThread)
+        return
+      }
       if (r.queued) { setNotice('已入待发队列(网络恢复自动发)'); return }
       if (r.dropped) { setNotice('发送失败:' + (r.error || '')); return }
       // 刷新消息与 revision(reply 桥可能已追加助手消息)
@@ -91,7 +98,7 @@ export function WorkThreadsCard() {
       if (typeof r.revision === 'number') cur.revision = r.revision
       await ctx.store.upsertThread(cur)
       setOpenThread(cur)
-      const ml = await ctx.api.messageList({ threadId: cur.threadId, afterSeq: 0, limit: 200 })
+      const ml = await ctx.api.messageList({ threadId: cur.threadId, beforeSeq: 9007199254740991, limit: 200  // S03:取最新尾页,旧版 afterSeq:0 只见最早 200 条 })
       if (!ml.__notOk && Array.isArray(ml.items)) { setMessages(ml.items as WorkMessage[]); await ctx.store.setMessages(cur.threadId, ml.items as WorkMessage[]) }
       setNotice('')
     } finally { setBusy(false) }
