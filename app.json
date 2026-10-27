@@ -21,7 +21,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "cn.lanwealth.baize",
-      "buildNumber": "42",
+      "buildNumber": "50",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSSpeechRecognitionUsageDescription": "用于语音输入:将你说的话识别为文字后发送,不用于其他用途。",
