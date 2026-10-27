@@ -188,17 +188,16 @@ export default function ChatScreen() {
     }
   })
   useSpeechRecognitionEvent('end', () => setListening(false))
-  // 语音输入(P2-03):授权前中文预告(为什么用/仅此时用);拒绝后给一键去设置的恢复路径
+  // 语音输入:授权前用途说明(Apple 5.1.1(iv):说明后总是直接进入系统权限请求,不提供延迟路径);拒绝后给一键去设置的恢复路径
   async function toggleVoice() {
     if (listening) { ExpoSpeechRecognitionModule.stop(); return }
     try {
       const status = await ExpoSpeechRecognitionModule.getPermissionsAsync().catch(() => null)
       if (status && !status.granted && (status.status === 'undetermined' || status.canAskAgain === true)) {
-        // 系统弹窗前先讲清楚用途(首次授权转化的关键一步;系统弹窗文案随手机语言,中文机即中文)
-        const go = await new Promise<boolean>(resolve =>
-          Alert.alert('启用语音输入', '白泽需要「麦克风」与「语音识别」权限,仅在你按住语音按钮说话时采集,不用时不会录音。\n同意后将弹出系统授权。',
-            [{ text: '暂不', style: 'cancel', onPress: () => resolve(false) }, { text: '同意授权', onPress: () => resolve(true) }]))
-        if (!go) return
+        // 系统弹窗前先讲清楚用途;唯一按钮=继续,点后立即弹出系统授权(不放"暂不"延迟路径,5.1.1(iv))
+        await new Promise<void>(resolve =>
+          Alert.alert('启用语音输入', '白泽需要「麦克风」与「语音识别」权限,仅在你按住语音按钮说话时采集,不用时不会录音。\n点「继续」后将弹出系统授权。',
+            [{ text: '继续', onPress: () => resolve() }]))
       }
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync()
       if (!perm.granted) {
@@ -330,7 +329,13 @@ export default function ChatScreen() {
   async function pickCamera() {
     if (attachBusy || busy) return
     const perm = await ImagePicker.requestCameraPermissionsAsync()
-    if (!perm.granted) { Alert.alert('需要相机权限', '请在系统设置中允许白泽使用相机。'); return }
+    if (!perm.granted) {
+      Alert.alert('需要相机权限', '拍照附件需要相机权限,可在设置中开启。', [
+        { text: '取消', style: 'cancel' },
+        { text: '去设置', onPress: () => Linking.openSettings() },
+      ])
+      return
+    }
     const r = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true })
     if (r.canceled || !r.assets?.[0]?.base64) return
     setImgAttach(r.assets[0].base64!)

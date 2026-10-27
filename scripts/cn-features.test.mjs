@@ -54,6 +54,15 @@ test('语音权限中文预告+一键去设置恢复路径(P2-03)', () => {
   assert.match(chat, /Linking\.openSettings\(\)/, '拒绝后提供一键去设置')
 })
 
+test('权限预告无延迟路径(5.1.1(iv)):说明后总是直接进入系统授权', () => {
+  const start = chat.indexOf('启用语音输入')
+  const end = chat.indexOf('requestPermissionsAsync()', start)
+  assert.ok(start >= 0 && end > start, '语音预告与系统授权流程存在')
+  const seg = chat.slice(start, end)
+  assert.ok(!seg.includes('暂不'), '预告弹窗不得提供「暂不」延迟按钮(5.1.1(iv))')
+  assert.match(seg, /继续/, '预告弹窗唯一按钮=继续,点后必入系统授权')
+})
+
 test('对话接口走 /api(cn-chat)而业务数据走 /crm-api(cn-api)', () => {
   assert.match(api, /await post\('\/api', \{ action: 'otp_send'/)
   assert.match(api, /await post\('\/crm-api', \{ action: 'account_delete_request'/)
