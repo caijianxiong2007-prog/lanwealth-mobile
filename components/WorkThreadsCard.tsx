@@ -67,7 +67,8 @@ export function WorkThreadsCard() {
     setOpenThread(th)
     const cached = await ctx.store.getMessages(th.threadId)
     if (cached) setMessages(cached)
-    const r = await ctx.api.messageList({ threadId: th.threadId, beforeSeq: 9007199254740991, limit: 200  // S03:取最新尾页,旧版 afterSeq:0 只见最早 200 条 })
+    // S03:取最新尾页,旧版 afterSeq:0 只见最早 200 条
+    const r = await ctx.api.messageList({ threadId: th.threadId, beforeSeq: 9007199254740991, limit: 200 })
     if (!r.__notOk && Array.isArray(r.items)) {
       setMessages(r.items as WorkMessage[])
       await ctx.store.setMessages(th.threadId, r.items as WorkMessage[])
@@ -111,7 +112,8 @@ export function WorkThreadsCard() {
       if (typeof r.revision === 'number') cur.revision = r.revision
       await ctx.store.upsertThread(cur)
       setOpenThread(cur)
-      const ml = await ctx.api.messageList({ threadId: cur.threadId, beforeSeq: 9007199254740991, limit: 200  // S03:取最新尾页,旧版 afterSeq:0 只见最早 200 条 })
+      // S03:取最新尾页,旧版 afterSeq:0 只见最早 200 条
+      const ml = await ctx.api.messageList({ threadId: cur.threadId, beforeSeq: 9007199254740991, limit: 200 })
       if (!ml.__notOk && Array.isArray(ml.items)) { setMessages(ml.items as WorkMessage[]); await ctx.store.setMessages(cur.threadId, ml.items as WorkMessage[]) }
       setNotice('')
     } finally { setBusy(false) }
