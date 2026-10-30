@@ -30,6 +30,8 @@ export function WorkThreadsCard() {
   const [notice, setNotice] = useState('')
   // Phase 2: 指令库抽屉
   const [libOpen, setLibOpen] = useState(false)
+  // Phase 3: @ 引用选择器
+  const [atOpen, setAtOpen] = useState(false)
   // refs:跨渲染保持 api/store/sync(依手机号会话构建;无会话=未登录态)
   const ctxRef = useRef<{ api: WorkClient; store: WorkStore; phone: string; sync: ReturnType<typeof createWorkSync> } | null>(null)
 
@@ -162,6 +164,10 @@ export function WorkThreadsCard() {
             <Text style={s.scenarioIcon}>🎯</Text>
             <Text style={[s.scenarioLabel, { color: C.teal }]}>指令库</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={[s.scenarioBtn, s.libBtn]} onPress={() => setAtOpen(true)}>
+            <Text style={s.scenarioIcon}>@</Text>
+            <Text style={[s.scenarioLabel, { color: C.teal }]}>引用</Text>
+          </TouchableOpacity>
         </ScrollView>
         <View style={s.composer}>
           <TextInput style={s.input} value={draft} onChangeText={setDraft} placeholder="输入消息…" placeholderTextColor={C.muted} multiline />
@@ -214,6 +220,31 @@ export function WorkThreadsCard() {
                     <Text style={s.libCardDesc} numberOfLines={1}>{sc.prompt}</Text>
                   </View>
                   <Text style={s.libCardAct}>填入 →</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Phase 3: @ 引用选择器(Modal) */}
+      <Modal visible={atOpen} animationType="slide" transparent onRequestClose={() => setAtOpen(false)}>
+        <View style={s.libOverlay}>
+          <View style={s.libSheet}>
+            <View style={s.libHeader}>
+              <Text style={s.libTitle}>@ 引用知识与资料</Text>
+              <TouchableOpacity onPress={() => setAtOpen(false)}>
+                <Text style={s.libClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={s.libList}>
+              {SCENARIOS.map((sc, i) => (
+                <TouchableOpacity key={i} style={s.libCard} onPress={() => { setDraft(draft + ` @[${sc.icon} ${sc.title}] `); setAtOpen(false) }}>
+                  <Text style={s.libCardIcon}>{sc.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.libCardTitle}>{sc.prompt}</Text>
+                    <Text style={s.libCardDesc}>点击引用到消息</Text>
+                  </View>
                 </TouchableOpacity>
               ))}
             </ScrollView>
