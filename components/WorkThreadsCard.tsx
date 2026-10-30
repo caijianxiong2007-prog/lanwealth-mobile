@@ -3,13 +3,21 @@
 // 个人空间线程列表/新建/消息查看/发送(离线入队,恢复冲水)。
 // 数据层 = lib/workApi + lib/workStore + lib/syncQueue(与网页 /workbench 同契约)。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
 import { getCnSession } from '../lib/cnApi'
 import { createWorkApi, type WorkClient } from '../lib/workApi'
 import { createWorkStore, rememberSpace, type WorkStore, type WorkThread, type WorkMessage } from '../lib/workStore'
 import { createWorkSync } from '../lib/syncQueue'
 
 const C = { card: '#101815', border: '#22302a', text: '#e6efe9', muted: '#8fa89b', teal: '#1aeba8', red: '#e05656', input: '#0d1512' }
+
+// Phase 1(UI优化 2026-10-30): 场景快捷按钮
+const SCENARIOS = [
+  { icon: '📊', title: '摘要', prompt: '帮我生成一份经营数据摘要' },
+  { icon: '📝', title: '周报', prompt: '帮我生成本周工作周报' },
+  { icon: '🔍', title: '检索', prompt: '帮我查找相关知识和资料' },
+  { icon: '👥', title: '客户', prompt: '帮我查询客户信息和跟进记录' },
+]
 
 export function WorkThreadsCard() {
   const [ready, setReady] = useState(false)
@@ -113,18 +121,41 @@ export function WorkThreadsCard() {
           <TouchableOpacity onPress={() => setOpenThread(null)}><Text style={s.back}>‹ 返回</Text></TouchableOpacity>
           <Text style={s.title} numberOfLines={1}>{openThread.title || '(未命名)'}</Text>
         </View>
-        <FlatList
-          data={messages}
-          keyExtractor={(m) => m.messageId}
-          style={s.msgs}
-          renderItem={({ item }) => (
-            <View style={[s.msg, item.role === 'user' ? s.msgUser : s.msgBot]}>
-              <Text style={s.msgRole}>{item.role === 'user' ? '' : '【' + (item.role === 'assistant' ? '助手' : '系统') + '】'}</Text>
-              <Text style={s.msgText}>{item.parts?.[0]?.v || ''}</Text>
-            </View>
-          )}
-        />
+        {messages.length === 0 ? (
+          /* Phase 1: 空态居中引导 */
+          <View style={s.hero}>
+            <Text style={s.heroTitle}>今天帮你做些什么？</Text>
+            <Text style={s.heroSub}>在下方输入或点击提示词开始</Text>
+            {SCENARIOS.map((sc, i) => (
+              <TouchableOpacity key={i} style={s.promptCard} onPress={() => setDraft(sc.prompt)}>
+                <Text style={s.promptIcon}>{sc.icon}</Text>
+                <Text style={s.promptText}>{sc.prompt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <FlatList
+            data={messages}
+            keyExtractor={(m) => m.messageId}
+            style={s.msgs}
+            renderItem={({ item }) => (
+              <View style={[s.msg, item.role === 'user' ? s.msgUser : s.msgBot]}>
+                <Text style={s.msgRole}>{item.role === 'user' ? '' : '【' + (item.role === 'assistant' ? '助手' : '系统') + '】'}</Text>
+                <Text style={s.msgText}>{item.parts?.[0]?.v || ''}</Text>
+              </View>
+            )}
+          />
+        )}
         {notice ? <Text style={s.notice}>{notice}</Text> : null}
+        {/* Phase 1: 场景快捷条 */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.scenarioStrip}>
+          {SCENARIOS.map((sc, i) => (
+            <TouchableOpacity key={i} style={s.scenarioBtn} onPress={() => setDraft(sc.prompt)}>
+              <Text style={s.scenarioIcon}>{sc.icon}</Text>
+              <Text style={s.scenarioLabel}>{sc.title}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
         <View style={s.composer}>
           <TextInput style={s.input} value={draft} onChangeText={setDraft} placeholder="输入消息…" placeholderTextColor={C.muted} multiline />
           <TouchableOpacity style={[s.btn, busy && s.btnOff]} disabled={busy} onPress={send}>
@@ -182,4 +213,16 @@ const s = StyleSheet.create({
   btn: { backgroundColor: C.teal, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   btnOff: { opacity: 0.5 },
   btnText: { color: '#06322a', fontWeight: 'bold', fontSize: 13 },
+  // Phase 1: 空态引导
+  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 12 },
+  heroTitle: { color: C.text, fontSize: 18, fontWeight: '600' },
+  heroSub: { color: C.muted, fontSize: 12 },
+  promptCard: { flexDirection: 'row', alignItems: 'center', width: '100%', borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.teal, borderRadius: 8, padding: 8, backgroundColor: C.input },
+  promptIcon: { fontSize: 14, marginRight: 6 },
+  promptText: { color: C.text, fontSize: 12, flex: 1 },
+  // Phase 1: 场景快捷条
+  scenarioStrip: { flexDirection: 'row', maxHeight: 36, marginBottom: 4 },
+  scenarioBtn: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4, marginRight: 6, backgroundColor: C.input },
+  scenarioIcon: { fontSize: 13, marginRight: 3 },
+  scenarioLabel: { color: C.text, fontSize: 11 },
 })
