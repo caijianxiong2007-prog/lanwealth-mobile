@@ -1,9 +1,10 @@
-// 大陆版手机端 · 工作记录卡(CN10 UI 接入,2026-10-22)
+// 大陆版手机端 · 工作记录卡(CN10 UI + Phase 1/2 优化,2026-10-30)
 // 嵌入工作台(workbench.tsx)的自包含组件:新版 work 协议会话——
 // 个人空间线程列表/新建/消息查看/发送(离线入队,恢复冲水)。
+// Phase 1: 空态居中引导 + 场景快捷按钮条。Phase 2: 指令库 Modal 抽屉。
 // 数据层 = lib/workApi + lib/workStore + lib/syncQueue(与网页 /workbench 同契约)。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, ScrollView, Modal } from 'react-native'
 import { getCnSession } from '../lib/cnApi'
 import { createWorkApi, type WorkClient } from '../lib/workApi'
 import { createWorkStore, rememberSpace, type WorkStore, type WorkThread, type WorkMessage } from '../lib/workStore'
@@ -27,6 +28,8 @@ export function WorkThreadsCard() {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  // Phase 2: 指令库抽屉
+  const [libOpen, setLibOpen] = useState(false)
   // refs:跨渲染保持 api/store/sync(依手机号会话构建;无会话=未登录态)
   const ctxRef = useRef<{ api: WorkClient; store: WorkStore; phone: string; sync: ReturnType<typeof createWorkSync> } | null>(null)
 
@@ -147,7 +150,7 @@ export function WorkThreadsCard() {
           />
         )}
         {notice ? <Text style={s.notice}>{notice}</Text> : null}
-        {/* Phase 1: 场景快捷条 */}
+        {/* Phase 1: 场景快捷条 + Phase 2 指令库入口 */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.scenarioStrip}>
           {SCENARIOS.map((sc, i) => (
             <TouchableOpacity key={i} style={s.scenarioBtn} onPress={() => setDraft(sc.prompt)}>
@@ -155,6 +158,10 @@ export function WorkThreadsCard() {
               <Text style={s.scenarioLabel}>{sc.title}</Text>
             </TouchableOpacity>
           ))}
+          <TouchableOpacity style={[s.scenarioBtn, s.libBtn]} onPress={() => setLibOpen(true)}>
+            <Text style={s.scenarioIcon}>🎯</Text>
+            <Text style={[s.scenarioLabel, { color: C.teal }]}>指令库</Text>
+          </TouchableOpacity>
         </ScrollView>
         <View style={s.composer}>
           <TextInput style={s.input} value={draft} onChangeText={setDraft} placeholder="输入消息…" placeholderTextColor={C.muted} multiline />
@@ -187,6 +194,32 @@ export function WorkThreadsCard() {
         )}
         ListEmptyComponent={<Text style={s.empty}>(空——点「+ 新会话」开始,消息级历史、跨设备同步)</Text>}
       />
+
+      {/* Phase 2: 指令库抽屉(Modal 半屏) */}
+      <Modal visible={libOpen} animationType="slide" transparent onRequestClose={() => setLibOpen(false)}>
+        <View style={s.libOverlay}>
+          <View style={s.libSheet}>
+            <View style={s.libHeader}>
+              <Text style={s.libTitle}>🎯 指令库</Text>
+              <TouchableOpacity onPress={() => setLibOpen(false)}>
+                <Text style={s.libClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={s.libList}>
+              {SCENARIOS.map((sc, i) => (
+                <TouchableOpacity key={i} style={s.libCard} onPress={() => { setDraft(sc.prompt); setLibOpen(false) }}>
+                  <Text style={s.libCardIcon}>{sc.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.libCardTitle}>{sc.title}</Text>
+                    <Text style={s.libCardDesc} numberOfLines={1}>{sc.prompt}</Text>
+                  </View>
+                  <Text style={s.libCardAct}>填入 →</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -225,4 +258,17 @@ const s = StyleSheet.create({
   scenarioBtn: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4, marginRight: 6, backgroundColor: C.input },
   scenarioIcon: { fontSize: 13, marginRight: 3 },
   scenarioLabel: { color: C.text, fontSize: 11 },
+  libBtn: { borderColor: C.teal },
+  // Phase 2: 指令库抽屉
+  libOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  libSheet: { backgroundColor: C.card, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '60%', paddingBottom: 20 },
+  libHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  libTitle: { color: C.text, fontSize: 15, fontWeight: '600' },
+  libClose: { color: C.muted, fontSize: 16, paddingHorizontal: 8 },
+  libList: { padding: 8 },
+  libCard: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 12, marginBottom: 8, backgroundColor: C.input },
+  libCardIcon: { fontSize: 18, marginRight: 10 },
+  libCardTitle: { color: C.text, fontSize: 13, fontWeight: '600' },
+  libCardDesc: { color: C.muted, fontSize: 11, marginTop: 2 },
+  libCardAct: { color: C.teal, fontSize: 12 },
 })
