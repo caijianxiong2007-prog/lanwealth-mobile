@@ -1,11 +1,12 @@
-// 国际版手机端 · 工作记录卡(INT10 UI 接入,2026-10-25)
+// 国际版手机端 · 工作记录卡(INT10 UI + Phase 1 优化,2026-10-30)
 // 与大陆版 WorkThreadsCard 同构的自包含组件:work 协议会话——
 // 个人空间线程列表/新建/消息查看/发送(离线入队,恢复冲水);发送后服务端回复桥
 // 的 AI 回复随响应返回,刷新即显示。
+// Phase 1 新增: 空态居中引导 + 场景快捷按钮条 + 推荐提示词(对标 WorkBuddy)。
 // 差异:鉴权=Supabase 会话(getSession 每次取新令牌,自动续期由 supabase 客户端管);
 //      本地缓存键=userId(国际版账号主键)。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
 import { getSession } from '../lib/supabase'
 import { createWorkApi, type WorkClient } from '../lib/workApi'
 import { createWorkStore, rememberSpace, type WorkStore, type WorkThread, type WorkMessage } from '../lib/workStore'
@@ -13,6 +14,21 @@ import { createWorkSync } from '../lib/syncQueue'
 
 // 配色与 App 既有暗色蓝紫基调一致(index.tsx 的 C 系)
 const C = { card: '#171a2e', border: '#252845', text: '#e8eaf6', muted: '#80849e', teal: '#2dd4a7', input: '#12142a' }
+
+// Phase 1: 场景快捷按钮(内置;企业模板后续接入)
+const SCENARIOS = [
+  { icon: '📊', title: 'Summary', prompt: 'Help me generate a summary of business data' },
+  { icon: '📝', title: 'Weekly', prompt: 'Help me write a weekly work report' },
+  { icon: '🔍', title: 'Search', prompt: 'Help me find relevant knowledge' },
+  { icon: '👥', title: 'Customer', prompt: 'Help me look up customer information' },
+]
+
+// Phase 1: 推荐提示词(空态显示)
+const PROMPTS = [
+  { icon: '📊', text: 'Summarize this week\'s key metrics' },
+  { icon: '👥', text: 'Show my top customers status' },
+  { icon: '📝', text: 'Draft a project status update' },
+]
 
 export function WorkThreadsCard() {
   const [ready, setReady] = useState(false)
@@ -119,18 +135,41 @@ export function WorkThreadsCard() {
           <TouchableOpacity onPress={() => setOpenThread(null)}><Text style={s.back}>‹ Back</Text></TouchableOpacity>
           <Text style={s.title} numberOfLines={1}>{openThread.title || '(untitled)'}</Text>
         </View>
-        <FlatList
-          data={messages}
-          keyExtractor={(m) => m.messageId}
-          style={s.msgs}
-          renderItem={({ item }) => (
-            <View style={[s.msg, item.role === 'user' ? s.msgUser : s.msgBot]}>
-              {item.role !== 'user' ? <Text style={s.msgRole}>{item.role === 'assistant' ? 'Bayze' : item.role}</Text> : null}
-              <Text style={s.msgText}>{item.parts?.[0]?.v || ''}</Text>
-            </View>
-          )}
-        />
+        {messages.length === 0 ? (
+          /* Phase 1: 空态居中引导 */
+          <View style={s.hero}>
+            <Text style={s.heroTitle}>What can I help you with?</Text>
+            <Text style={s.heroSub}>Type below or tap a suggestion</Text>
+            {PROMPTS.map((p, i) => (
+              <TouchableOpacity key={i} style={s.promptCard} onPress={() => setDraft(p.text)}>
+                <Text style={s.promptIcon}>{p.icon}</Text>
+                <Text style={s.promptText}>{p.text}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <FlatList
+            data={messages}
+            keyExtractor={(m) => m.messageId}
+            style={s.msgs}
+            renderItem={({ item }) => (
+              <View style={[s.msg, item.role === 'user' ? s.msgUser : s.msgBot]}>
+                {item.role !== 'user' ? <Text style={s.msgRole}>{item.role === 'assistant' ? 'Bayze' : item.role}</Text> : null}
+                <Text style={s.msgText}>{item.parts?.[0]?.v || ''}</Text>
+              </View>
+            )}
+          />
+        )}
         {notice ? <Text style={s.notice}>{notice}</Text> : null}
+        {/* Phase 1: 场景快捷条 */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.scenarioStrip}>
+          {SCENARIOS.map((sc, i) => (
+            <TouchableOpacity key={i} style={s.scenarioBtn} onPress={() => setDraft(sc.prompt)}>
+              <Text style={s.scenarioIcon}>{sc.icon}</Text>
+              <Text style={s.scenarioLabel}>{sc.title}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
         <View style={s.composer}>
           <TextInput style={s.input} value={draft} onChangeText={setDraft} placeholder="Message…" placeholderTextColor={C.muted} multiline />
           <TouchableOpacity style={[s.btn, busy && s.btnOff]} disabled={busy} onPress={send}>
@@ -188,4 +227,16 @@ const s = StyleSheet.create({
   btn: { backgroundColor: C.teal, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   btnOff: { opacity: 0.5 },
   btnText: { color: '#0a2e24', fontWeight: 'bold', fontSize: 13 },
+  // Phase 1: 空态引导
+  hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 16 },
+  heroTitle: { color: C.text, fontSize: 20, fontWeight: '600' },
+  heroSub: { color: C.muted, fontSize: 13 },
+  promptCard: { flexDirection: 'row', alignItems: 'center', width: '100%', borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.teal, borderRadius: 8, padding: 10, backgroundColor: C.input },
+  promptIcon: { fontSize: 16, marginRight: 8 },
+  promptText: { color: C.text, fontSize: 13, flex: 1 },
+  // Phase 1: 场景快捷条
+  scenarioStrip: { flexDirection: 'row', maxHeight: 40, marginBottom: 6 },
+  scenarioBtn: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.border, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, backgroundColor: C.input },
+  scenarioIcon: { fontSize: 14, marginRight: 4 },
+  scenarioLabel: { color: C.text, fontSize: 12 },
 })
