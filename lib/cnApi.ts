@@ -103,6 +103,18 @@ export async function clearCnSession(): Promise<void> {
   return withSessionLock(clearSessionUnlocked)
 }
 
+// ── AI 数据处理授权(App Store 5.1.1(i)/5.1.2(i),2026-11-02)──
+// 发送内容经平台境内服务实时转发给第三方大模型厂商;首次发送前 App 内明示
+// (发送什么/发给谁/用途)并征得同意,同意状态可随时在「我的」页撤回。
+const AI_CONSENT_KEY = 'cn_ai_data_consent_v1'
+export async function getAiConsent(): Promise<string | null> {
+  try { return await kvGet(AI_CONSENT_KEY) } catch { return null }
+}
+export async function setAiConsent(agreedAt: string | null): Promise<void> {
+  if (agreedAt === null) { try { await kvDel(AI_CONSENT_KEY) } catch {} return }
+  await kvSet(AI_CONSENT_KEY, agreedAt)
+}
+
 // ── 401 统一登出(P1-08,2026-10-15):令牌过期/撤销 → 原子清会话 + 单次跳登录 ──
 // Compare and clear under the same lock as login writes; stale requests cannot clear a new login.
 // handler 由根布局注册(router.replace),lib 层不引导航。

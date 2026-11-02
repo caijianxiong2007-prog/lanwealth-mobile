@@ -9,6 +9,8 @@ import { dirname, join } from 'node:path'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const read = (p) => readFileSync(join(root, p), 'utf8')
 const chat = read('app/(tabs)/index.tsx')
+const layout = read('app/(tabs)/_layout.tsx')
+const settings = read('app/(tabs)/settings.tsx')
 const api = read('lib/cnApi.ts')
 
 test('流式对话有停止通道(cnStopStream + abort 兜底清理)', () => {
@@ -66,4 +68,36 @@ test('权限预告无延迟路径(5.1.1(iv)):说明后总是直接进入系统�
 test('对话接口走 /api(cn-chat)而业务数据走 /crm-api(cn-api)', () => {
   assert.match(api, /await post\('\/api', \{ action: 'otp_send'/)
   assert.match(api, /await post\('\/crm-api', \{ action: 'account_delete_request'/)
+})
+
+// ═══ 第三轮审核整改(2026-11-02):AI 数据授权 + 企业专属门 ═══
+
+test('AI 数据处理授权门(5.1.1(i)/5.1.2(i)):首次发送前明示并征得同意,可拒绝', () => {
+  const start = chat.indexOf('async function send()')
+  const end = chat.indexOf('setBusy(true)', start)
+  assert.ok(start >= 0 && end > start, 'send 函数存在')
+  const seg = chat.slice(start, end)
+  assert.match(seg, /getAiConsent\(\)/, '发送前检查同意状态')
+  assert.match(seg, /阿里云通义千问/, '明示数据接收方(发给谁)')
+  assert.match(seg, /文档与图片内容/, '明示发送内容(发什么)')
+  assert.match(seg, /用于生成回复/, '明示用途')
+  assert.match(seg, /'不同意'/, '允许拒绝(数据共享同意必须有拒绝路径)')
+  assert.match(seg, /'同意并继续'/, '同意后继续发送')
+  assert.match(seg, /setAiConsent\(new Date/, '同意落库')
+})
+
+test('「我的」页可查看与撤回 AI 数据授权(5.1.2)', () => {
+  assert.match(settings, /AI 数据处理授权/, '设置页有授权入口行')
+  assert.match(settings, /撤回授权/, '已同意状态可撤回')
+  assert.match(settings, /setAiConsent\(null\)/, '撤回即清除同意记录')
+})
+
+test('iOS 企业专属门(3.1.1/3.1.3(c)):无企业身份进引导页,Android 不受影响', () => {
+  assert.match(layout, /Platform\.OS === 'ios' \? 'checking' : 'pass'/, '门仅对 iOS 生效')
+  assert.match(layout, /if \(Platform\.OS !== 'ios'\) return/, 'Android 直接放行')
+  assert.match(layout, /cnWorkSetup\(\)/, '企业身份走服务端 fin_setup_get 鉴权')
+  assert.match(layout, /non-enterprise/, '无企业身份分支存在')
+  assert.match(layout, /面向企业用户/, '引导页说明定位')
+  assert.match(layout, /app\.lanwealth\.cn/, '引导个人用户去网页版')
+  assert.match(layout, /wipeConversations/, '切换账号清理本机会话')
 })

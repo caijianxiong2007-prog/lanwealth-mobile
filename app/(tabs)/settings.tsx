@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import Constants from 'expo-constants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { getCnSession, cnLogout, cnUsage, cnPlanInfoEx, cnAccountDelete, CN_BASE, type CnUsage, type CnPlan } from '../../lib/cnApi'
+import { getCnSession, cnLogout, cnUsage, cnPlanInfoEx, cnAccountDelete, getAiConsent, setAiConsent, CN_BASE, type CnUsage, type CnPlan } from '../../lib/cnApi'
 import { wipeConversations } from '../../lib/cnConversations'
 
 const C = {
@@ -34,6 +34,29 @@ export default function SettingsScreen() {
   const [loading, setLoading]     = useState(true)
   const [delBusy, setDelBusy]     = useState(false)
   const [reloadN, setReloadN]     = useState(0)
+  const [aiConsentAt, setAiConsentAt] = useState<string | null>(null)
+
+  // AI 数据处理授权状态(5.1.1(i)/5.1.2(i)):挂载即读;撤回后下次发送前会重新征询
+  useEffect(() => {
+    let alive = true
+    ;(async () => { const v = await getAiConsent(); if (alive) setAiConsentAt(v) })()
+    return () => { alive = false }
+  }, [])
+
+  function aiConsentRow() {
+    if (aiConsentAt) {
+      const d = new Date(aiConsentAt)
+      Alert.alert('AI 数据处理授权', `你已于 ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} 同意:为生成回复,你输入的文字、文档与图片内容及企业知识条目将转发给境内大模型服务提供方(详见隐私政策)。\n撤回后不影响已发生的对话;下次发送消息前会再次征求同意。`, [
+        { text: '取消', style: 'cancel' },
+        { text: '撤回授权', style: 'destructive', onPress: () => { void setAiConsent(null).then(() => setAiConsentAt(null)) } },
+      ])
+    } else {
+      Alert.alert('AI 数据处理授权', '尚未同意。发送第一条消息前会弹出完整说明征求你的同意;也可先查看隐私政策第二、三节。', [
+        { text: '关闭', style: 'cancel' },
+        { text: '查看隐私政策', onPress: () => Linking.openURL(CN_BASE + '/privacy') },
+      ])
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -179,6 +202,10 @@ export default function SettingsScreen() {
       {/* 合规链接(双端保留:隐私政策/用户协议是审核必需,允许外链) */}
       <Text style={s.sec}>法律与隐私</Text>
       <View style={s.card}>
+        <TouchableOpacity style={s.row} onPress={aiConsentRow}>
+          <Text style={s.rowLabel}>AI 数据处理授权</Text>
+          <Text style={s.link}>{aiConsentAt ? '已同意 · 点击管理' : '未同意 · 点击查看'}</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={s.row} onPress={() => Linking.openURL(CN_BASE + '/privacy')}>
           <Text style={s.rowLabel}>隐私政策</Text>
           <Text style={s.link}>↗</Text>

@@ -13,7 +13,7 @@ import Svg, { Path } from 'react-native-svg'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system'
-import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, getCnSession, cnFileExtract, cnOcr, cnRagSearch, cnRagContext, CN_USER_STOP, type CnMessage } from '../../lib/cnApi'
+import { CN_MODELS, cnChat, cnStreamChat, cnStopStream, cnLogout, getCnSession, cnFileExtract, cnOcr, cnRagSearch, cnRagContext, CN_USER_STOP, getAiConsent, setAiConsent, type CnMessage } from '../../lib/cnApi'
 import { useShareIntentContext } from 'expo-share-intent'
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition'
 import * as ImagePicker from 'expo-image-picker'
@@ -353,6 +353,16 @@ export default function ChatScreen() {
     const text = input.trim()
     if (busy) return
     if (!text && !imgAttach) return
+    // AI 数据处理授权门(5.1.1(i)/5.1.2(i)):首次发送前明示"发什么/发给谁/用途"并征得
+    // 同意,未同意不发送(此为数据共享同意,允许拒绝;可在「我的」页撤回,撤回后下次再征询)
+    if (!(await getAiConsent())) {
+      const agreed = await new Promise<boolean>(resolve =>
+        Alert.alert('AI 数据处理说明与授权',
+          '为生成回复,你输入的文字、添加的文档与图片内容,以及你所在企业授权范围内相关的知识条目,将通过白泽的境内服务实时转发给大模型服务提供方(阿里云通义千问、深度求索、智谱、字节跳动、月之暗面,均在中国境内)用于生成回复;转发过程不额外留存内容。详见《隐私政策》第二、三节(可在「我的」页查看)。',
+          [{ text: '不同意', style: 'cancel', onPress: () => resolve(false) }, { text: '同意并继续', onPress: () => resolve(true) }]))
+      if (!agreed) return
+      await setAiConsent(new Date().toISOString())
+    }
     const attachTag = attach ? `\n📎 已附文件「${attach.name}」(${attach.chars} 字)` : ''
     const userB: Bubble = { role: 'user', content: imgAttach ? (text || '(图片)') : (text + attachTag), ts: Date.now() }
     const next = [...messages, userB]
