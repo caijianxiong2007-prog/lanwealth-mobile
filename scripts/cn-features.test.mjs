@@ -101,3 +101,9 @@ test('iOS 企业专属门(3.1.1/3.1.3(c)):无企业身份进引导页,Android �
   assert.match(layout, /app\.lanwealth\.cn/, '引导个人用户去网页版')
   assert.match(layout, /wipeConversations/, '切换账号清理本机会话')
 })
+
+test('iOS 元数据口径(2.3.10/3.1.1):App 内不出现安卓版引用与个人用户引流', () => {
+  assert.ok(!layout.includes('安卓'), '引导屏不得出现安卓版引用(2.3.10)')
+  assert.ok(!layout.includes('个人用户'), '引导屏不得做个人用户引流(3.1.1 消费者通道)')
+  assert.match(layout, /请联系贵司管理员/, '无企业身份的指引=联系企业管理员')
+})
